@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install (system libs for headless chromium if e2e added)
+        run: npm ci
+      - name: Generate WXT types
+        run: npx wxt prepare
+      - name: Type check
+        run: npm run compile
+      - name: Unit tests (includes archive/sync invariant regression suite)
+        run: npx vitest run
+      - name: Build (chrome)
+        run: npm run build:chrome
+      - name: Build (firefox)
+        run: npm run build:firefox

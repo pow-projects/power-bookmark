@@ -1,0 +1,361 @@
+/* ============================================================
+   PowerBookmark Design System — "서고 (Archival Catalog)"
+   종이 + 잉크 + 리본 모티프. 개인 웹 아카이브의 목록카드 미학.
+   규칙: 이모지 아이콘 금지 (components/shared/Icon.svelte 사용)
+   ============================================================ */
+
+:root {
+  /* Fonts (로컬 번들 — main.ts에서 import) */
+  --font-primary: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-accent: 'Pretendard Variable', Pretendard, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: 'Outfit', 'Pretendard Variable', sans-serif;
+
+  /* Light Theme — "종이" */
+  --bg-primary: #F6F4EE;
+  --bg-secondary: #FFFEFA;
+  --bg-tertiary: #EDEBE3;
+  --bg-glass: rgba(255, 254, 250, 0.88);
+  --bg-surface-glass: rgba(255, 254, 250, 0.88);
+  --border-glass: rgba(27, 35, 48, 0.08);
+
+  --text-primary: #1B2330;
+  --text-secondary: #5A6472;
+  --text-muted: #98A0AC;
+
+  /* 리본 레드 — 시그니처 */
+  --color-primary: #D6453D;
+  --color-primary-hover: #B93A33;
+  --color-primary-light: #F9E5E3;
+  --color-on-primary: #ffffff;
+
+  /* 스탬프 데이터 컬러 */
+  --color-success: #0F766E;
+  --color-warning: #B45309;
+  --color-info: #B45309;
+  --color-danger: #B93A33;
+  --color-accent: #0F766E;
+
+  --border-color: #E3E0D6;
+  --border-focus: #D6453D;
+
+  --shadow-sm: 0 1px 2px 0 rgba(27, 35, 48, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(27, 35, 48, 0.08), 0 2px 4px -2px rgba(27, 35, 48, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(27, 35, 48, 0.10), 0 4px 6px -4px rgba(27, 35, 48, 0.08);
+  --shadow-glass: 0 8px 32px 0 rgba(27, 35, 48, 0.10);
+
+  /* 카탈로그 카드 — 각진 느낌 */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --backdrop-blur: 16px;
+
+  /* Component Tokens — 버튼 크기 */
+  --btn-padding-sm: 0.25rem 0.5rem;
+  --btn-padding-md: 0.625rem 1.25rem;
+  --btn-font-size-sm: 0.7rem;
+  --btn-font-size-md: 0.875rem;
+  --btn-font-size-xs: 0.7rem;
+
+  /* Component Tokens — 카드 패딩 */
+  --card-padding-sm: 0.75rem;
+  --card-padding-md: 1rem;
+  --card-padding-lg: 1.5rem;
+
+  /* Component Tokens — 배지 */
+  --badge-font-size: 0.625rem;
+  --badge-padding: 0.125rem 0.375rem;
+  --badge-radius: var(--radius-sm);
+
+  /* Component Tokens — 모달 */
+  --modal-backdrop-bg: rgba(15, 23, 42, 0.4);
+  --modal-radius: var(--radius-lg);
+
+  /* Component Tokens — 토스트 */
+  --toast-bg: var(--bg-secondary);
+  --toast-border: var(--border-color);
+
+  /* Container Query 유틸리티 */
+  --container-sm: 30rem;
+  --container-md: 48rem;
+  --container-lg: 64rem;
+  --container-xl: 80rem;
+}
+
+/* Dark Theme — "야간 서고" */
+:root[data-theme="dark"] {
+  --bg-primary: #12161D;
+  --bg-secondary: #1A2029;
+  --bg-tertiary: #232B36;
+  --bg-glass: rgba(26, 32, 41, 0.88);
+  --bg-surface-glass: rgba(26, 32, 41, 0.88);
+  --border-glass: rgba(237, 235, 228, 0.08);
+
+  --text-primary: #EDEBE4;
+  --text-secondary: #A8B0BC;
+  --text-muted: #5F6875;
+
+  --color-primary: #F0665C;
+  --color-primary-hover: #D6453D;
+  --color-primary-light: rgba(240, 102, 92, 0.14);
+  --color-on-primary: #ffffff;
+
+  --color-success: #2DD4BF;
+  --color-warning: #F59E0B;
+  --color-info: #F59E0B;
+  --color-danger: #F0665C;
+  --color-accent: #2DD4BF;
+
+  --border-color: #2B3440;
+  --border-focus: #F0665C;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.35), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.45), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+
+  --toast-bg: #1A2029;
+  --toast-border: #2B3440;
+  --modal-backdrop-bg: rgba(15, 23, 42, 0.6);
+}
+
+/* Base */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-primary);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 접근성: 키보드 포커스 */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 접근성: 모션 최소화 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Glassmorphism — 부유 요소(모달/드롭다운/토스트) 전용 */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(var(--backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--backdrop-blur));
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-glass);
+}
+
+/* Input Styles */
+input, select, textarea {
+  font-family: var(--font-primary);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+/* Button Styles */
+.btn {
+  font-family: var(--font-primary);
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all var(--transition-fast);
+}
+
+.btn-primary {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+  background-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.btn-accent {
+  background-color: var(--color-accent);
+  color: var(--color-on-primary);
+}
+
+.btn-accent:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn-accent:active {
+  transform: translateY(0);
+}
+
+:root[data-theme="dark"] .btn-accent {
+  background-color: var(--color-accent);
+  color: #12161D;
+}
+
+.btn-danger {
+  background-color: var(--color-danger);
+  color: var(--color-on-primary);
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* 스탬프 배지 — 분류 날인 스타일 */
+.stamp-badge {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.125rem 0.375rem;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Firefox 스크롤바 지원 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+
+/* Container Query 유틸리티 */
+.container {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.container-sm { max-width: var(--container-sm); }
+.container-md { max-width: var(--container-md); }
+.container-lg { max-width: var(--container-lg); }
+.container-xl { max-width: var(--container-xl); }
+
+.grid-auto-fit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+/* 공통 버튼 크기 변형 */
+.btn-xs {
+  padding: var(--btn-padding-sm);
+  font-size: var(--btn-font-size-xs);
+}
+
+.btn-sm {
+  padding: var(--btn-padding-sm);
+  font-size: var(--btn-font-size-sm);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+/* 공통 배지 스타일 (Badge 컴포넌트의 fallback) */
+.badge {
+  font-family: var(--font-mono);
+  font-size: var(--badge-font-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: var(--badge-radius);
+  padding: var(--badge-padding);
+  border: 1px solid transparent;
+}
+
+.badge-primary { color: var(--color-on-primary); background-color: var(--color-primary); border-color: var(--color-primary); }
+.badge-success { color: var(--color-on-primary); background-color: var(--color-success); border-color: var(--color-success); }
+.badge-warning { color: var(--color-on-primary); background-color: var(--color-warning); border-color: var(--color-warning); }
+.badge-danger { color: var(--color-on-primary); background-color: var(--color-danger); border-color: var(--color-danger); }
+.badge-secondary { color: var(--text-secondary); background: transparent; border-color: var(--border-color); }
+
+/* 공통 모달 백드롭 */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--modal-backdrop-bg);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* 공통 토스트 스타일 변수화 */
+.toast-item {
+  background: var(--toast-bg);
+  border: 1px solid var(--toast-border);
+}

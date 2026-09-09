@@ -1,0 +1,246 @@
+{
+  "version": "2.0",
+  "description": "북마크 요약 및 폴더 자동 카테고리화를 지원하는 텍스트 LLM Provider 목록",
+  "categories": {
+    "official": "공식 AI SDK Provider",
+    "openai-compatible": "OpenAI 호환 & 로컬 LLM",
+    "community": "커뮤니티 Provider"
+  },
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "category": "official",
+      "description": "GPT-4o, GPT-4o-mini 등 고성능 요약 및 분류 모델",
+      "defaultModels": [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "gpt-4.1-mini",
+        "gpt-4.1",
+        "o3-mini",
+        "o4-mini"
+      ]
+    },
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "category": "official",
+      "description": "Gemini 2.0 Flash, Gemini 1.5 Pro 등 빠른 텍스트 요약 모델",
+      "defaultModels": [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic Claude",
+      "category": "official",
+      "description": "Claude 3.5 Sonnet, Claude 3.5 Haiku 등 높은 문맥 이해 모델",
+      "defaultModels": [
+        "claude-3-5-haiku-latest",
+        "claude-3-5-sonnet-latest",
+        "claude-3-7-sonnet-latest",
+        "claude-sonnet-4",
+        "claude-opus-4"
+      ]
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "category": "official",
+      "description": "Llama 3.3 등 LPU 기반 초고속 요약 및 카테고리 추천",
+      "defaultModels": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "gemma2-9b-it",
+        "mixtral-8x7b-32768"
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "category": "official",
+      "description": "DeepSeek-V3, DeepSeek-R1 추론 특화 LLM",
+      "defaultModels": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ]
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral AI",
+      "category": "official",
+      "description": "Mistral Small, Mistral Large 요약 특화 모델",
+      "defaultModels": [
+        "mistral-small-latest",
+        "mistral-large-latest",
+        "open-mistral-nemo",
+        "codestral-latest"
+      ]
+    },
+    {
+      "id": "xai",
+      "name": "xAI (Grok)",
+      "category": "official",
+      "description": "Grok 2, Grok 2 mini 대화 및 분석 모델",
+      "defaultModels": [
+        "grok-2",
+        "grok-2-mini",
+        "grok-3",
+        "grok-3-mini"
+      ]
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere",
+      "category": "official",
+      "description": "Command R+ 요약 및 문서 분류 특화 모델",
+      "defaultModels": [
+        "command-r-plus",
+        "command-r",
+        "command-a"
+      ]
+    },
+    {
+      "id": "togetherai",
+      "name": "Together AI",
+      "category": "official",
+      "description": "오픈소스 LLM (Llama, Qwen 등) 호스팅",
+      "defaultModels": [
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "Qwen/Qwen2.5-72B-Instruct-Turbo",
+        "meta-llama/Llama-3.1-8B-Instruct-Turbo"
+      ]
+    },
+    {
+      "id": "azure",
+      "name": "Azure OpenAI",
+      "category": "official",
+      "description": "Microsoft Azure 엔터프라이즈 호스팅 OpenAI 모델",
+      "defaultModels": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-35-turbo"
+      ]
+    },
+    {
+      "id": "amazon-bedrock",
+      "name": "Amazon Bedrock",
+      "category": "official",
+      "description": "AWS Bedrock 기반 Claude 및 Llama 모델",
+      "defaultModels": [
+        "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "anthropic.claude-3-haiku-20240307-v1:0",
+        "meta.llama3-70b-instruct-v1:0"
+      ]
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama (로컬)",
+      "category": "openai-compatible",
+      "description": "사용자 컴퓨터에서 직접 실행되는 로컬 LLM (API Key 필요 없음)",
+      "isLocal": true,
+      "defaultEndpoint": "http://localhost:11434/v1",
+      "defaultModels": [
+        "llama3.1",
+        "llama3.2",
+        "qwen2.5",
+        "mistral",
+        "gemma2"
+      ]
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio (로컬)",
+      "category": "openai-compatible",
+      "description": "LM Studio로 구동하는 로컬 LLM 서버",
+      "isLocal": true,
+      "defaultEndpoint": "http://localhost:1234/v1",
+      "defaultModels": [
+        "llama-3.1-8b-instruct",
+        "qwen2.5-7b-instruct",
+        "mistral-7b-instruct-v0.3"
+      ]
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "category": "openai-compatible",
+      "description": "다양한 AI 모델을 통합 라우팅하는 API",
+      "defaultEndpoint": "https://openrouter.ai/api/v1",
+      "defaultModels": [
+        "openai/gpt-4o-mini",
+        "anthropic/claude-3.5-sonnet",
+        "meta-llama/llama-3.3-70b-instruct",
+        "google/gemini-2.0-flash"
+      ]
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "category": "openai-compatible",
+      "description": "웹 검색 및 검색 기반 요약 특화 LLM",
+      "defaultEndpoint": "https://api.perplexity.ai",
+      "defaultModels": [
+        "sonar",
+        "sonar-pro",
+        "sonar-reasoning"
+      ]
+    },
+    {
+      "id": "chrome-ai",
+      "name": "Chrome Built-in AI",
+      "category": "community",
+      "description": "Chrome 브라우저 내장 Gemini Nano 모델 (실험적 기능)",
+      "isLocal": true,
+      "defaultModels": [
+        "gemini-nano"
+      ]
+    },
+    {
+      "id": "upstage",
+      "name": "Upstage Solar",
+      "category": "community",
+      "description": "한국어 요약 및 분석에 뛰어난 Solar LLM",
+      "defaultModels": [
+        "solar-pro",
+        "solar-mini",
+        "solar-pro-preview"
+      ]
+    },
+    {
+      "id": "qwen",
+      "name": "Alibaba Qwen",
+      "category": "community",
+      "description": "Qwen 2.5 텍스트 분석 및 분류 모델",
+      "defaultModels": [
+        "qwen-plus",
+        "qwen-turbo",
+        "qwen2.5-72b-instruct",
+        "qwen2.5-32b-instruct"
+      ]
+    },
+    {
+      "id": "zhipu",
+      "name": "Zhipu AI (GLM)",
+      "category": "community",
+      "description": "GLM-4 텍스트 요약 및 분석",
+      "defaultModels": [
+        "glm-4",
+        "glm-4-flash",
+        "glm-4-air"
+      ]
+    },
+    {
+      "id": "custom",
+      "name": "사용자 정의 API",
+      "category": "openai-compatible",
+      "description": "OpenAI API 호환 규격의 커스텀 REST 엔드포인트",
+      "defaultEndpoint": "http://localhost:8080/v1",
+      "defaultModels": []
+    }
+  ]
+}
