@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      vitest:
+        patterns:
+          - "vitest*"
+          - "@vitest/*"
+      ai-sdk:
+        patterns:
+          - "ai"
+          - "@ai-sdk/*"
+    ignore:
+      # image-size and adm-zip are transitive devDependencies of web-ext without upstream patches
+      - dependency-name: "image-size"
+      - dependency-name: "adm-zip"

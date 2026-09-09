@@ -1,0 +1,721 @@
+# ── Manifest & Context Menu ──
+extensionName: PowerBookmark
+extensionDescription: Bookmark manager with AI categorization, offline HTML archiving, link health check, and multi-cloud sync.
+openManagement: Open Management Page
+addBookmark: Add Bookmark
+editBookmark: Edit Bookmark
+deleteBookmark: Delete Bookmark
+aiSummarize: Generate AI Summary
+saveHtml: Save HTML
+cancel: Cancel
+manage: Management Page
+alreadyBookmarked: This page is already bookmarked.
+syncSuccess: Sync completed successfully
+syncError: Sync failed
+checkHealth: Check Link Health
+statsTitle: Dashboard
+
+# ── Badge / Tooltip ──
+badge:
+  saved: PowerBookmark (Already saved)
+  processing: PowerBookmark (Processing...)
+  archiving: PowerBookmark (Saving archive...)
+  aiAnalyzing: PowerBookmark (Analyzing with AI...)
+  syncing: PowerBookmark (Syncing...)
+  capturing: PowerBookmark (Capturing timeline...)
+
+# ── Popup ──
+popup:
+  wordmark: PowerBookmark
+  manage: Manage →
+  saving: Saving…
+  saved: Saved
+  error:
+    noPage: Failed to retrieve page information.
+    autoSave: Auto-save failed.
+    foldersLoadFailed: Failed to load bookmark folders.
+    viewArchiveFailed: Failed to open archive.
+    deleteFailed: "Failed to delete bookmark: {error}"
+    noUrl: No URL available to save.
+    pageLoadFailed: Failed to load page information.
+    createFailed: "Failed to create bookmark: {error}"
+    archiveStartFailed: Failed to start archive processing.
+    archiveSaveFailed: "Failed to save archive: {error}"
+  form:
+    title: Title
+    titlePlaceholder: Enter bookmark title
+    folder: Folder
+    folderSelect: Select folder
+    description: Description
+    descriptionPlaceholder: Enter notes or description (optional)
+    newFolder: New Folder
+    newFolderPlaceholder: New folder name
+    create: Create
+    cancel: Cancel
+    tags: Tags
+    tagsPlaceholder: Type tag and press Enter
+    titleRequired: Please enter a title.
+    invalidUrl: Please enter a valid URL.
+    foldersLoadRetry: Failed to load the folder list. Please try again in a moment.
+    foldersEmpty: No folders yet. Create a new folder to organize your bookmarks.
+  actions:
+    saveArchive: Save Archive
+    viewArchive: View Archive
+    delete: Delete
+    deleted: Deleted
+    savingArchive: Saving archive...
+    savedArchive: Archive saved
+
+# ── Shared Components ──
+common:
+  confirm: Confirm
+  cancel: Cancel
+  close: Close
+  delete: Delete
+  save: Save
+  edit: Edit
+  create: Create
+  loading: Loading…
+  empty: No items found
+  retry: Retry
+  search: Search
+  apply: Apply
+  reset: Reset
+  all: All
+  select: Select
+  success: Success
+  error: Error
+  warning: Warning
+  info: Info
+  unknownError: Unknown error
+  bookmark: Bookmark
+  copied: Copied to clipboard.
+
+modal:
+  confirmTitle: Confirm
+  deleteTitle: Confirm Delete
+  closeAria: Close
+
+spinner:
+  loadingAria: Loading
+
+archiveViewerModal:
+  title: Archive Viewer
+  openOriginal: Open Original Link
+  openNewTab: Open in New Tab
+  downloadHtml: Download HTML
+  uncompressing: Decompressing...
+  archivedAt: Saved Date
+  fileSize: File Size
+  refreshArchive: Refresh Archive
+  deleteArchive: Delete Archive
+  deletingArchive: Deleting...
+  deleteConfirm: Are you sure you want to permanently delete this archive copy? (Bookmark metadata will be kept)
+  deletedToast: Archive deleted.
+  refreshToast: Archive refresh requested.
+
+# ── Management Page Shell ──
+nav:
+  dashboard: Dashboard
+  bookmarks: Bookmark Manager
+  settings: Settings
+  sidebarCollapse: Collapse Sidebar
+  sidebarExpand: Expand Sidebar
+
+theme:
+  toggleAria: Toggle theme
+  darkMode: Dark mode
+  lightMode: Light mode
+  switchToDark: Switch to dark mode
+  switchToLight: Switch to light mode
+
+# ── Stats Dashboard ──
+dashboard:
+  title: Dashboard
+  description: View bookmark statistics and collection metrics.
+  totalBookmarks: Total Bookmarks
+  revisitRate: Revisit Rate
+  archiveFiles: Archive Files
+  archiveSize: Total Archive Size
+  topHosts: Top 10 Hosts
+  topFolders: Top 10 Folders
+  categoryChartTitle: Most Visited Categories (Folders)
+  revisitChartTitle: Revisit Distribution
+  visitCount: Visits
+  unvisited: Unvisited (0)
+  visited1: 1 visit
+  visited2to5: Revisit (2-5)
+  visited6plus: Frequent (6+)
+  other: Other
+  emptyData: No data to display.
+  loadingStats: Loading statistics...
+  hostDrilldownAria: View bookmarks for host {host}
+  folderDrilldownAria: View bookmarks in folder {folder}
+  tagTimelineTitle: Tag Timeline
+  tagTimelineBadge: TIMELINE
+  viewMonthly: Monthly
+  viewYearly: Yearly
+  timelineGranularityAria: Timeline view granularity
+  viewAllLines: All
+  viewTwoLines: 2 Lines
+  timelineLineLimitAria: Timeline line limit
+  expandMoreTags: Show more
+  collapseTags: Show less
+  captureTimeline: Capture
+  capturingTimeline: Capturing...
+  captureTimelineAria: Capture and download timeline screenshot
+  captureSuccess: Timeline screenshot downloaded.
+  captureFailed: Failed to capture timeline.
+  showAllMonths: Show All Months
+  collapseMonths: Show Recent 12 Months
+  noTagsInPeriod: No tagged bookmarks found in this period.
+  tagDrilldownAria: "View bookmarks tagged with {tag}"
+  timelineScrollAria: Tag timeline scroll list
+  monthBookmarksCount: "{count} bookmarks"
+  yearBookmarksCount: "{count} bookmarks"
+  monthTagsCount: "{count} tags"
+  yearTagsCount: "{count} tags"
+
+# ── Bookmark Management ──
+bookmarks:
+  title: Bookmark Manager
+  untitled: Untitled
+  description: Search, filter, edit and manage your bookmarks in bulk.
+  totalCount: "{count} bookmarks"
+  searchPlaceholder: Search title, URL, description, tags...
+  searchAria: Search bookmarks
+  tagFilterAria: Tag filter
+  selectAria: "Select '{title}'"
+  scanStopTooltip: Checking (click to stop)
+  connectionError: "Connection error: {status}"
+  connectionErrorShort: Connection error
+  clearHealthError: Clear error status
+  healthErrorCleared: Error status cleared.
+  healthErrorClearFailed: Failed to clear error status.
+  connectionOk: Verified reachable
+  folderTooltip: "Folder: {folder}"
+  crossRootTooltip: Review suggested root folder
+  tagFilterChipAria: "Filter by tag '{tag}'"
+  statusFilterAria: Status and category filter
+  sortAria: Sort criteria
+  allTags: Tags
+  filterStatus:
+    all: Status
+    uncategorized: Uncategorized (Default folder)
+    noDesc: No Description
+    noTags: No Tags
+    unorganized: Needs Organization (Uncategorized / No metadata)
+    broken: Broken Links (Error)
+    dead: 404 Dead Links
+  sort:
+    newest: Newest
+    oldest: Oldest
+    nameAsc: Name (A-Z)
+    nameDesc: Name (Z-A)
+    folderAsc: Folder (A-Z)
+    folderDesc: Folder (Z-A)
+    statusAsc: Status (Ascending)
+    statusDesc: Status (Descending)
+    visitCount: Most Visited
+  viewMode:
+    grid: Grid view
+    list: List view
+  filterReset: Reset filter
+  selectAll: Select all
+  deselectAll: Deselect all
+  selectedCount: "{count} selected"
+  noBookmarks: No matching bookmarks found.
+  emptyFilter: No bookmarks match the current filter.
+  searchPlaceholderShort: Search...
+  filterBadge:
+    remove: "Remove {label} filter"
+    appliedFilters: Applied filters
+    folder: Folder
+  addBookmark: Add Bookmark
+  importExport: Import / Export
+  checkHealth: Check Links
+  table:
+    title: "Title / URL"
+    folder: Folder
+    tags: Tags
+    archive: "Status / Archive"
+    visits: Visits
+    created: Date Added
+    actions: Actions
+  card:
+    openUrl: Open Link
+    viewArchive: View Archive
+    saveArchive: Archive
+    cloudArchiveTooltip: Download and open cloud-stored archive
+    edit: Edit
+    delete: Delete
+    visitCount: "{count} visits"
+    noDescription: No description
+    createdDate: Date Added
+  bulk:
+    aiClassify: AI Batch Categorize
+    aiSummarize: AI Batch Summarize
+    checkLinks: Check Links
+    delete404: Delete 404
+    deleteSelected: Delete Selected
+    confirmDeleteSelected: Are you sure you want to delete {count} selected bookmark(s)?
+    confirmDelete404: Are you sure you want to delete {count} broken (404) bookmark(s)?
+  modals:
+    deleteSingleTitle: Delete Bookmark
+    deleteSingleMessage: Are you sure you want to delete this bookmark? It will also be removed from browser bookmarks.
+    delete404Title: Delete 404 Bookmarks
+    delete404Message: "Are you sure you want to completely delete {count} unreachable (404) bookmarks from browser and database?"
+    deleteBulkTitle: Confirm Bookmark Deletion
+    deleteExcludingArchive: Delete Excluding Archived
+    deleteExcludingArchiveDesc: "Preserve {archiveCount} archived items and delete {nonArchiveCount} non-archived items."
+    deleteAll: Delete All
+    deleteAllDesc: "Delete all {count} selected bookmarks and their associated archives."
+    deleteBulkConfirm: "Are you sure you want to delete {count} selected bookmarks?"
+    updated: Bookmark updated.
+    updateFailed: "Failed to update bookmark: {error}"
+    deletedSingle: Bookmark deleted.
+    deletedDead: "Deleted {count} broken (404) bookmarks."
+    deletedBulk: "Deleted {count} selected bookmarks."
+    deletedBulkExcludingArchive: "Deleted {count} bookmarks (excluding {archiveCount} archived items)."
+    deleteFailed: "Failed to delete: {error}"
+
+# ── Bookmark Modals ──
+bookmarkEditModal:
+  title: Edit Bookmark Details
+  addTitle: Add Bookmark
+  url: URL
+  urlPlaceholder: https://example.com
+  titleLabel: Title
+  titlePlaceholder: Bookmark title
+  folderLabel: Folder
+  newFolderBtn: + Create New Folder
+  newFolderPlaceholder: Enter new folder name
+  descriptionLabel: Description
+  descLabel: Description / Summary
+  descPlaceholder: Memo or AI summary for this bookmark.
+  tagsLabel: Tags (comma-separated)
+  tagsPlaceholder: "e.g. dev, svelte, tutorial"
+  tagsHint: Separate with commas or Enter
+  saveChanges: Save Changes
+  create: Add Bookmark
+  generateAiSummary: Generate AI Summary
+  aiSummarizeBtn: Summarize with AI
+  aiClassifyBtn: Suggest Folder
+  summarizing: Summarizing...
+  classifying: Categorizing...
+
+bookmarkImportExport:
+  importTitle: Import Bookmarks
+  exportTitle: Export Bookmarks
+  importDescription: Upload Chrome/Firefox HTML, JSON, or CSV bookmark files.
+  exportDescription: Export saved bookmarks to HTML, JSON, or CSV.
+  selectFile: Select File
+  uploadBtn: Start Import
+  exportHtmlBtn: Export as HTML
+  exportJsonBtn: Export as JSON
+  importSuccess: "Successfully imported {count} bookmarks."
+  importSuccessWithSkipped: "Successfully imported {count} bookmarks. ({skipped} duplicates skipped)"
+  importError: Failed to read bookmark file.
+  importFailed: "Failed to import bookmarks: {error}"
+  exportedHtml: Exported as HTML file.
+  exportHtmlFailed: "Failed to export HTML: {error}"
+  exportedJson: Exported as JSON file.
+  exportJsonFailed: "Failed to export JSON: {error}"
+  exportedCsv: Exported as CSV file.
+  exportCsvFailed: "Failed to export CSV: {error}"
+
+healthCheck:
+  title: Link Health Check
+  description: Verify links for broken or unreachable pages (404, 500, etc.).
+  startBtn: Start Check
+  cancelBtn: Cancel Check
+  checking: Checking links... ({current}/{total})
+  results: Check Results
+  healthy: Healthy ({count})
+  dead: Broken ({count})
+  redirect: Redirect ({count})
+  cleanDeadBtn: Remove Broken Links
+  scanCompleted: "Link health check completed: {deadCount} broken link(s) found"
+  scanError: "Link health check error: {error}"
+  scanStopped: Link health check stopped.
+
+# ── Folder Tree & Cross-Root ──
+folders:
+  allFolders: All Folders
+  rootFolder: Root (Default)
+  newFolder: New Folder
+  renameFolder: Rename
+  renameSuccess: "Folder renamed."
+  renameFailed: "Failed to rename folder: {error}"
+  noSlashAllowed: "Folder names cannot contain '/'."
+  duplicateName: "A folder with this name already exists in this location."
+  cannotRenameSystemRoot: "System root folders cannot be renamed."
+  renameModal:
+    title: "Rename Folder"
+    inputLabel: "Folder Name"
+    locationLabel: "Location"
+    placeholder: "Enter new folder name"
+    submit: "Rename"
+  deleteFolder: Delete Folder
+  confirmDelete: "Are you sure you want to delete folder \"{name}\" and all its bookmarks?"
+  moveFolder: Move Folder
+  move: Move
+  nameRequired: Please enter a folder name.
+  bookmarkMoved: "Moved to '{folder}'."
+  bookmarksMoved: "{count} bookmarks moved to '{folder}'."
+  collapseFolder: Collapse
+  expandFolder: Expand
+  cleanEmptyFolders: Clean Empty Folders
+  cleanEmptyFoldersSuccess: "Cleaned up {count} empty folder(s)."
+  noEmptyFoldersFound: No empty folders found.
+  cleanEmptyFoldersFailed: "Failed to clean empty folders: {error}"
+  overcrowdedBanner: "'{folder}' folder has {count} bookmarks. Consider creating subfolders to organize."
+  dismissOvercrowded: Dismiss
+  crossRootTitle: Cross-Root Folder Move
+  crossRootDescription: Manage folder moves across browser root boundaries.
+  crossRootBanner: "{count} bookmark(s) suggested for folder reorganization."
+  reviewAndApply: Review & Apply
+  crossRootBatchApplied: "Reorganization of {count} bookmark(s) applied."
+  crossRoot:
+    modalTitle: Cross-Root Folder Move Review
+    pendingCount: "{count} pending"
+    intro: "AI suggested organizing bookmarks across root locations (e.g., Bookmarks Bar ↔ Other Bookmarks). Please select how each should be handled."
+    quickSelect: Quick Select
+    allCreateHere: Create new folder in current location for all
+    allMoveRecommended: Move all to recommended location
+    allSkip: Skip all
+    currentLocation: Current Location
+    suggestedLocation: AI Suggested Location
+    choiceCreateHere: Create new folder in current location
+    defaultBadge: Default
+    choiceCreateHereDesc: "Create '{path}' folder under current root ({root}) and move."
+    choiceMoveRecommended: Move to recommended location
+    choiceMoveRecommendedDesc: "Move to '{path}' under recommended root ({root})."
+    choiceSkip: Skip
+    choiceSkipDesc: Keep current location without moving.
+    apply: Apply Changes
+    roots:
+      bar: "[Bookmarks bar] Bookmarks bar"
+      other: "[Other bookmarks] Other bookmarks"
+      mobile: "[Mobile bookmarks] Mobile bookmarks"
+    pendingBadge: Pending Location Review
+    directRoot: "(Direct root)"
+  deleteModal:
+    title: Delete Folder
+    message: "Folder \"{name}\" contains {count} bookmarks."
+    keepOption: Preserve bookmarks and delete folder
+    keepOptionDesc: Move bookmarks inside to parent folder and delete only the folder.
+    deleteAllOption: Delete folder and bookmarks
+    deleteAllOptionDesc: Delete everything including bookmarks inside the folder.
+  cleanEmptyModal:
+    title: Clean Empty Folders
+    message: "The following {count} empty folder(s) will be deleted. Do you want to proceed?"
+    confirm: "Delete Empty Folders ({count})"
+  created: New folder created.
+  createFailed: "Failed to create folder: {error}"
+  deleted: Folder deleted.
+  deleteFailed: "Failed to delete folder: {error}"
+  reordered: Folder order changed.
+  reorderFailed: Failed to change folder order.
+  moved: Folder moved.
+  moveFailed: Failed to move folder.
+
+# ── AI & Tasks ──
+ai:
+  taskBadge: AI Analysis
+  taskCancel: Cancel
+  taskCancelTooltip: Click to cancel AI processing for this bookmark
+  analysisFailed: AI Analysis Failed
+  analysisFailedWithDetail: "AI analysis failed: {detail}"
+  summarizingToast: Generating AI summary...
+  noBodyText: No body text to summarize.
+  configFirst: Please configure AI Provider and Model first.
+  noBookmarksToClassify: No bookmarks to categorize.
+  tooManyBookmarks: "Too many uncategorized bookmarks (max {max})"
+  bulkSummarizeStarted: "Started AI summary for {count} bookmark(s)."
+  bulkInProgress: Bulk AI analysis is in progress. Please try again after completion.
+  requestFailed: "AI summary failed: {error}"
+  analysisCancelled: AI analysis cancelled.
+  summarySuccess: AI summary completed.
+  categoryAll: All
+  categoryOfficial: Official Providers
+  categoryOpenAI: OpenAI Compatible / Local LLM
+  categoryCommunity: Community Providers
+  categoryCustom: Custom API
+  analysisError: AI analysis error
+
+# ── Settings ──
+settings:
+  title: Settings
+  description: Manage AI analysis, HTML snapshot archiving, and cloud sync.
+  nav:
+    archive: Snapshot Archive
+    sync: Cloud Sync
+    ai: AI Settings
+  autoSaved: Automatically saved
+  tabs:
+    ai: AI Analysis
+    archive: HTML Archive
+    sync: Cloud Sync
+    dev: Developer Tools
+
+archiveSettings:
+  title: Snapshot Archive Settings
+  autoArchiveTitle: Auto-archive
+  autoArchiveDesc: Automatically capture and store snapshot HTML in background when adding a bookmark.
+  compressTitle: GZIP Archive Compression
+  compressDesc: Compress captured HTML with gzip to save up to 70% IndexedDB storage space.
+  saved: Archive settings saved.
+
+syncSettings:
+  title: Cloud Sync Settings
+  providerLabel: Sync Service Provider
+  providerNone: Disabled
+  providerGoogleDrive: Google Drive
+  providerOneDrive: Microsoft OneDrive
+  providerDropbox: Dropbox
+  providerWebDav: "WebDAV (Nextcloud, Synology, etc.)"
+  intervalTitle: Sync Schedule
+  intervalDesc: Set how frequently bookmarks are automatically synchronized in the background.
+  interval5m: 5 minutes (Default)
+  interval15m: 15 minutes
+  interval30m: 30 minutes
+  interval60m: 1 hour
+  interval360m: 6 hours
+  interval1440m: 24 hours (Daily)
+  intervalManual: Manual sync only
+  intervalSaved: Sync schedule saved.
+  statusLabel: Sync Status
+  syncing: Syncing
+  connected: Connected
+  disconnected: Disconnected
+  lastSyncLabel: Last Sync
+  syncingMessage: Bi-directional synchronization in progress...
+  syncNow: Sync Now
+  disconnect: Disconnect
+  archiveSyncTitle: Archive Cloud Sync
+  archiveSyncDesc: Back up local HTML archive files to cloud storage as well.
+  restoreTitle: Restore Cloud Archives Locally
+  restoreDesc: Download cloud snapshot archives locally. (Downloads missing items only; does not overwrite existing data)
+  restoreButton: Restore Cloud Archives
+  restoring: Restoring...
+  gdriveConnected: Google Drive connected successfully.
+  gdriveFailed: "Google Drive connection failed: {error}"
+  onedriveConnected: OneDrive connected successfully.
+  onedriveFailed: "OneDrive connection failed: {error}"
+  dropboxConnected: Dropbox connected successfully.
+  dropboxFailed: "Dropbox connection failed: {error}"
+  webdavConnected: WebDAV server connected successfully.
+  webdavFailed: "WebDAV connection failed: {error}"
+  disconnectConfirm: Are you sure you want to disconnect? Local data will be preserved.
+  disconnectedToast: Connection disconnected.
+  disconnectFailed: "Disconnect failed: {error}"
+  syncSuccess: Sync completed successfully.
+  syncFailed: Sync failed
+  restoreConfirm: "Do you want to restore archives uploaded to the cloud?\n(Only missing archives will be downloaded. Existing data will not be overwritten.)"
+  restoreSuccess: "Archive restore completed: {count} item(s)"
+  restoreSuccessWithOrphans: "Archive restore completed: {count} item(s) ({orphans} orphan(s) preserved)"
+  restoreFailed: "Archive restore failed: {error}"
+  orphanCardTitle: Cloud Archive Cleanup
+  orphanCardDesc: Search and clean up archive files in cloud storage whose bookmarks have been deleted.
+  orphanScanButton: Scan Archives
+  orphanScanning: Scanning...
+  orphanScanBlockedSyncing: Cannot scan orphan archives while sync is in progress.
+  orphanScanBlockedError: Cannot scan orphan archives in sync error state.
+  orphanScanBlockedNotSynced: Initial sync has not been completed yet. Please sync first.
+  orphanEmpty: No orphaned archives detected. Your cloud storage is clean.
+  orphanPromptScan: Click the scan button to search for orphaned cloud archives.
+  orphanTotalCount: "Total {count} ({size})"
+  orphanSelectedCount: "{count} selected"
+  orphanSelectAll: Select All
+  orphanColTitle: Title / URL
+  orphanColSize: File Size
+  orphanColDate: Archived Date
+  orphanColActions: Actions
+  orphanViewArchive: View
+  orphanDeleteSelected: Delete Selected
+  orphanDeleting: "Deleting... ({current}/{total})"
+  orphanDeleteConfirm: "Are you sure you want to permanently delete {count} orphaned archive(s) from cloud storage?\nThis action removes cloud files and metadata and cannot be undone."
+  orphanDeleteSuccess: "Successfully deleted {count} orphaned archive(s)."
+  orphanDeletePartial: "Deleted {success} item(s), failed to delete {failed} item(s)."
+  orphanDeleteFailed: "Failed to delete orphaned archives: {error}"
+  orphanFetchFailed: "Failed to load archive preview: {error}"
+
+
+syncOAuth:
+  google:
+    placeholder: Enter personal Client ID
+    guideTitle: Google Console Authorized Redirect URI
+    guideDesc: "Add the URL below to 'Authorized redirect URIs' in Google Cloud Console [Web application] settings."
+    helperText: Entering both Client ID and Client Secret will automatically verify the connection.
+  onedrive:
+    placeholder: Enter personal Application Client ID (Auto-connects on pause/blur/Enter)
+    guideTitle: Azure Portal Authorized Redirect URI
+    guideDesc: "Add the URL below to 'Redirect URIs' in Azure App Registration [Web / Single-Page Application] settings."
+  dropbox:
+    placeholder: Enter personal App Key (Auto-connects on pause/blur/Enter)
+    guideTitle: Dropbox Console Authorized Redirect URI
+    guideDesc: "Add the URL below to 'Redirect URIs' in Dropbox App Console settings."
+  helperText: Entering credentials and waiting 1-2s, moving focus, or pressing Enter will automatically verify the connection.
+  secretLabel: Client Secret
+  secretPlaceholder: "Enter Client Secret (e.g. GOCSPX-...)"
+  secretHelper: If registered as [Web application] in Google Cloud Console, enter the Client Secret.
+  requiredAddress: Required Redirect URI
+  copyAddress: Copy URI
+  copied: Copied!
+  clipboardCopied: Authorized redirect URI copied to clipboard.
+  clipboardCopyFailed: Failed to copy to clipboard.
+  verifying: Verifying connection...
+
+syncWebDav:
+  urlLabel: WebDAV Server URL
+  urlHelper: "Enter server URL (e.g. http://localhost:8085/) or URL with credentials (http://user:pass@host/)."
+  usernameLabel: Username (if required)
+  passwordLabel: Password (if required)
+  passwordPlaceholder: Keep saved password / enter to change
+  passwordHelper: Passwords are encrypted securely and used as authentication headers for background sync.
+  verifying: Testing connection...
+
+aiSettings:
+  title: AI Settings
+  providerLabel: AI Provider
+  providerNone: Disabled
+  local: Local
+  customApi: Custom API
+  customApiDesc: OpenAI-compatible custom REST API endpoint
+  apiKeyLabel: API Key
+  apiKeyPlaceholder: "Enter {provider} API Key"
+  fetchModelsTooltip: Fetch latest model list with API Key
+  endpointLabel: Endpoint URL
+  modelLabel: Model to Use
+  modelSelectPlaceholder: Select model or enter directly
+  modelCustomPlaceholder: Enter Model ID
+  modelDisabledPlaceholder: API Key or Endpoint required
+  openModelList: Open model list
+  refreshModelsTooltip: Refresh available model list
+  modelNoMatch: "No matching default model. (Applying current input \"{model}\")"
+  modelsLoaded: "{count} available models loaded. Select from list or enter custom model name."
+  modelsLoading: Loading model list or please check endpoint. You can also type custom model name.
+  modelsLoadedToast: "Loaded {count} models. Select a model to use."
+  fetchFailed: Failed to fetch available model list.
+  saved: AI settings saved.
+  saveFailed: "Failed to save AI settings: {error}"
+  autoSummarizeTitle: Auto-generate summary
+  autoSummarizeDesc: Analyzes body text and generates 2-3 sentence summary when adding a bookmark.
+  autoTagsTitle: Auto-extract tags
+  autoTagsDesc: Automatically extracts key keywords as hashtags (#) when adding a bookmark.
+  autoFolderTitle: Auto-categorize folders
+  autoFolderDesc: Analyzes existing folder structure to place bookmarks into appropriate folders or create new ones when adding a bookmark.
+  concurrencyTitle: Concurrent Processing Count
+  concurrencyDesc: Set how many bookmarks to analyze in parallel during AI processing.
+  concurrencyTip: "Recommended: 3–5 for Local LLMs (Ollama); Paid APIs can be configured higher based on rate limits and system capacity."
+
+# ── Sync Conflict Resolver ──
+conflict:
+  title: Sync Conflict Detected
+  titleWithCount: "{title} ({count} items)"
+  allKeepLocal: Keep All Local
+  allKeepCloud: Apply All Cloud
+  manualEdit: Manual Edit
+  idConflict: ID Conflict
+  metaMismatch: Metadata Mismatch
+  localDevice: Local Device
+  cloudStorage: Cloud Storage
+  modified: Modified
+  fieldTitle: Title
+  fieldUrl: URL
+  fieldDesc: Description
+  fieldFolder: Folder
+  fieldTags: Tags
+  keepLocal: Keep Local
+  keepCloud: Switch to Cloud
+  manualEditApplied: Manual Edit Applied
+  applyAndSync: Apply & Sync
+  historyTitle: Recent Sync Conflict & Merge History
+  historyDesc: View the history of data conflicts and automatic or manual merge resolutions during cloud sync.
+  clearLogs: Clear Logs
+  clearConfirm: Are you sure you want to delete all sync conflict logs?
+  cleared: Conflict logs have been cleared.
+  emptyLogs: No sync conflicts or merge records. All data is consistent.
+  tableDate: Date
+  tableTitle: Bookmark Title
+  tableResult: Merge Result
+  tableLocal: Local Modified
+  tableCloud: Cloud Modified
+  resultLocal: Local Preferred
+  resultCloud: Cloud Preferred
+
+# ── Sync Widget ──
+sync:
+  noRecord: No history
+  notConfigured: Not configured
+  lastSyncTime: Last Sync
+  syncNow: Sync Now
+  loadStateFailed: Failed to load sync state
+
+syncWidget:
+  never: Never
+
+# ── Cloud Adapters & Errors ──
+adapters:
+  dropbox:
+    noAppKey: Dropbox App Key (Client ID) is not configured.
+    invalidAuth: Dropbox authentication is invalid.
+  googleDrive:
+    noClientId: Google Drive Client ID is not configured.
+    invalidAuth: Google Drive authentication is invalid.
+  onedrive:
+    noClientId: OneDrive Client ID is not configured. Enter and save your own Client ID first.
+    invalidAuth: OneDrive authentication is invalid.
+  webdav:
+    noServerUrl: Please enter WebDAV server URL.
+    testFailed: "Connection test failed: {error}"
+  errors:
+    authCodeMissing: "{provider} sign-in did not return an authorization code."
+    readFailed: "{provider} file read failed: {status}"
+    writeFailed: "{provider} file write failed: {status}"
+    updateFailed: "{provider} file update failed: {status}"
+    queryFailed: "{provider} file query failed: {status}"
+    createFolderFailed: "{provider} folder creation failed: {status}"
+    deleteFailed: "{provider} file delete failed: {status}"
+    listFailed: "{provider} list query failed: {status}"
+    metadataCreateFailed: "{provider} metadata creation failed: {status}"
+    metadataQueryFailed: "{provider} metadata query failed: {status}"
+    connectFailed: "WebDAV connection failed: {message}"
+    notInitialized: WebDAV client is not initialized.
+
+# ── Archive & Viewer ──
+archive:
+  banner: Viewing archive · Saved copy of the original page
+  downloadingCloud: Downloading cloud archive...
+  saved: Archive saved.
+  saving: Saving...
+  savingToast: Saving snapshot archive...
+  savingAgain: Re-saving snapshot archive...
+  saveFailed: Failed to save archive.
+  saveFailedWithDetail: "Failed to save archive: {detail}"
+  openFailed: "Failed to open archive: {error}"
+  downloadFailed: "Failed to download archive: {error}"
+  inProgressOther: Another archive capture is currently in progress.
+  deleted: Archive deleted.
+  deleteFailed: "Failed to delete archive: {error}"
+  noIdentifier: Archive identifier was not specified.
+  loadFailed: Failed to load archive data.
+  unavailable: Archive unavailable
+  loadError: "Error loading archive: {error}"
+  offscreenError: Failed to capture or download page HTML.
+  htmlFetchFailed: Failed to fetch page HTML. (No open tab, or the URL is restricted.)
+  htmlCaptureFailed: Failed to capture or fetch page HTML.
+  offscreenRunFailed: Failed to run offscreen archive capture.
+  jobTimeout: "Archive job timed out ({seconds}s)"
+  sizeHardExceeded: "Upload rejected: file size ({size} bytes) exceeds the hard limit."
+  sizeHardExceededNotify: Archive exceeded the size limit and cloud upload was rejected.
+  clockSkewHold: "Upload held: archives with the same timestamp but different sizes exist."
+  indexWriteDeferred: Concurrent write conflicts deferred the archive index update.
+  indexConflictNotify: Archive index conflict delayed the upload. It will retry automatically.
+  uploadFailedWithDetail: "Archive upload failed: {error}"
+
+# ── Health Checker ──
+health:
+  cancelled: Link check cancelled.
+  checkFailed: "Link check failed: {error}"
