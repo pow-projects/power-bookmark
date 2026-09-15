@@ -59,6 +59,7 @@ popup:
     foldersLoadRetry: 폴더 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
     foldersEmpty: 폴더가 없습니다. 새 폴더를 만들어 북마크를 정리해 보세요.
   actions:
+    saveBookmark: 북마크 저장
     saveArchive: 아카이브 저장
     viewArchive: 아카이브 보기
     delete: 삭제
@@ -225,6 +226,9 @@ bookmarks:
   deselectAll: 선택 해제
   selectedCount: "{count}개 선택됨"
   noBookmarks: 일치하는 북마크가 없습니다.
+  loadingBookmarks: 북마크를 불러오는 중입니다...
+  loadFailed: 북마크를 불러오지 못했습니다.
+  retry: 다시 시도
   emptyFilter: 필터 조건과 일치하는 북마크가 없습니다.
   searchPlaceholderShort: 검색...
   filterBadge:
@@ -443,6 +447,15 @@ ai:
   categoryCommunity: 커뮤니티 Provider
   categoryCustom: 사용자 정의 API
   analysisError: AI 분석 오류
+  retryingAttempt: "AI 분석 재시도 중 ({current}/{max})"
+  errorQuota: "요청 한도 초과"
+  errorAuth: "API 키 인증 실패"
+  errorModelNotFound: "모델을 찾을 수 없음"
+  errorTimeout: "요청 시간 초과"
+  errorNetwork: "서버 연결 실패"
+  errorTokenSoup: "응답 형식 오류"
+  errorNotConfigured: "AI 설정 필요"
+  errorServerError: "AI 서버 오류"
 
 # ── Settings ──
 settings:
@@ -453,6 +466,9 @@ settings:
     sync: 클라우드 동기화
     ai: AI 설정
   autoSaved: 자동 저장됨
+  loadingSettings: 설정을 불러오는 중입니다...
+  loadFailed: 설정을 불러오지 못했습니다.
+  retry: 다시 시도
   tabs:
     ai: AI 분석
     archive: HTML 아카이브
@@ -585,8 +601,12 @@ aiSettings:
   customApiDesc: OpenAI 호환 사용자 정의 REST API 엔드포인트
   apiKeyLabel: API Key
   apiKeyPlaceholder: "{provider} API Key를 입력하세요"
-  fetchModelsTooltip: API Key로 최신 모델 목록 가져오기
+  apiKeyOptionalLabel: API Key (선택 사항)
+  apiKeyOptionalPlaceholder: "필요한 경우 입력 (llama.cpp 등 로컬 서버는 비워둠)"
   endpointLabel: 엔드포인트 URL
+  customHeadersLabel: 사용자 정의 HTTP 헤더 (선택 사항)
+  customHeadersPlaceholder: "Header-Name: Value\n또는 {\"Header-Name\": \"Value\"}"
+  customHeadersHint: 추가 인증 헤더나 라우팅 헤더가 필요한 경우 한 줄에 하나씩 입력하세요.
   modelLabel: 사용할 모델
   modelSelectPlaceholder: 모델을 선택하거나 직접 입력하세요
   modelCustomPlaceholder: 모델 ID 직접 입력
@@ -606,6 +626,8 @@ aiSettings:
   autoTagsDesc: 북마크 추가 시 문서의 핵심 키워드를 해시태그(#) 형태로 자동 추출합니다.
   autoFolderTitle: 자동 폴더 분류
   autoFolderDesc: 북마크 추가 시 기존 폴더 구조를 파악하여 적합한 폴더로 자동 분류하거나 새 폴더를 생성합니다.
+  autoOnBrowserBookmarkTitle: 브라우저 북마크 자동 분석
+  autoOnBrowserBookmarkDesc: 브라우저 기본 단축키나 주소창 별표 아이콘으로 북마크를 추가할 때 AI 분석을 자동 실행합니다.
   concurrencyTitle: AI 동시 처리 수
   concurrencyDesc: AI 분석 및 일괄 작업 시 동시에 처리할 북마크 개수를 설정합니다.
   concurrencyTip: "권장: 로컬 LLM(Ollama)은 3~5개 정도를 권장하며, 유료 API는 한도 및 사양에 맞춰 그 이상으로 자유롭게 설정할 수 있습니다."

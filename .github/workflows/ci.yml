@@ -33,3 +33,6 @@ jobs:
         run: npm run build:chrome
       - name: Build (firefox)
         run: npm run build:firefox
+      - name: AMO Store Lint (firefox)
+        run: npx addons-linter $(ls -d .output/firefox-* | head -n 1)
+

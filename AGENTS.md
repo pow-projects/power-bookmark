@@ -27,7 +27,7 @@ Chrome manages child processes via `wait()` in the main process. Killing only ch
 
 ### Cross-Browser MV3 Divergences
 - **Offscreen Permission**: Firefox MV3 does not support the `offscreen` permission. Keep `permissions.push('offscreen')` conditional on `browser !== 'firefox'` in `wxt.config.ts`.
-- **Context Menus**: In `browser.contextMenus.create()`, use contexts `['browser_action']` on Firefox and `['action']` on Chrome MV3 (`src/entrypoints/background.ts`).
+- **Context Menus**: In `browser.contextMenus.create()`, use contexts `['browser_action']` on MV2 (Firefox MV2) and `['action']` on MV3 (Chrome MV3 & Firefox MV3) via `import.meta.env.MANIFEST_VERSION === 2 ? 'browser_action' : 'action'`. Register on worker init, `onStartup`, and `onInstalled` with `removeAll()` to persist across browser restarts (`src/entrypoints/background.ts`).
 - **DOM Parsing**: Use `src/entrypoints/offscreen/` on Chrome MV3; perform direct parsing on Firefox (`import.meta.env.FIREFOX`).
 
 ---
@@ -51,6 +51,16 @@ Chrome manages child processes via `wait()` in the main process. Killing only ch
 - **Dexie Mock Chains**: Mock Dexie tables dynamically with chainable queries (`.where().equals()`, `.filter()`, `.first()`, `.toArray()`, `.add()`, `.put()`, `.delete()`, `.transaction()`). Ensure tables evaluate store arrays dynamically at call time.
 - **Timer & Queue Backoff**: In queue/retry tests, mock `retryBackoffMs` to minimal values (5ms) to prevent test timeouts and multi-second slowdowns.
 - **Test State Hygiene**: Always clear mock tables and reset queue singletons (`_resetArchiveQueueForTest()`, `vi.clearAllMocks()`, `vi.unstubAllGlobals()`) in `beforeEach` / `afterEach`.
+
+### Release & Store Submit (Upload-Only)
+- **Trigger**: Push a `v*` tag. Tag must match `package.json` version (`v$(version)` check in `.github/workflows/release.yml` fails otherwise).
+- **Procedure**: bump `version` → commit → `git tag vX.Y.Z` → `git push origin vX.Y.Z`.
+- **Store Zips**: `npm run zip:chrome`, `npm run zip:firefox` (Firefox also produces `*-sources.zip`, required for submit).
+- **Submit**: `npx wxt submit --chrome-zip ... --firefox-zip ... --firefox-sources-zip ... --chrome-skip-submit-review` (see `.github/workflows/release.yml`).
+  - `--chrome-skip-submit-review` is intentional: upload only, no review/publish request.
+  - Firefox channel: `listed` (default, no flag needed).
+- **CI Secrets (names only)**: `CHROME_EXTENSION_ID`, `CHROME_PUBLISHER_ID`, `CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL`, `CHROME_SERVICE_ACCOUNT_PRIVATE_KEY` (`CHROME_API_VERSION=v2`), `FIREFOX_EXTENSION_ID`, `FIREFOX_JWT_ISSUER`, `FIREFOX_JWT_SECRET`. Do not mix with legacy OAuth (`CHROME_CLIENT_ID` / `CHROME_CLIENT_SECRET` / `CHROME_REFRESH_TOKEN`).
+- **Local**: `wxt submit init` generates `.env.submit` (gitignored, never commit). Validate with `--dry-run`.
 
 ---
 

@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import type { Bookmark } from '../../../lib/db';
   import { isBookmarkBroken, type HealthCheckResult } from '../../../lib/health/health-checker';
+  import { formatApproximateAiError } from '../../../lib/ai/ai-error-formatter';
   import Icon from '../../shared/Icon.svelte';
 
   export let section: 'header' | 'body' | 'footer';
@@ -89,14 +90,15 @@
   {/if}
 
   {#if bookmark.aiStatus === 'error'}
+    {@const approxErr = bookmark.aiError ? formatApproximateAiError(bookmark.aiError) : ''}
     <button
       type="button"
       class="ai-error-badge retryable"
-      title={i18n.t('common.retry')}
+      title={bookmark.aiError ? `${i18n.t('ai.analysisFailed')}: ${bookmark.aiError} (${i18n.t('common.retry')})` : i18n.t('common.retry')}
       on:click|stopPropagation={() => dispatch('retryAi')}
     >
       <Icon name="alert-circle" size={12} />
-      <span>{i18n.t('ai.analysisFailed')} ({i18n.t('common.retry')})</span>
+      <span>{i18n.t('ai.analysisFailed')}{#if approxErr}: {approxErr}{/if} ({i18n.t('common.retry')})</span>
     </button>
   {/if}
 {:else if section === 'footer'}

@@ -23,6 +23,7 @@ export async function getAiSettings(): Promise<AiSettings> {
   }
   const apiKey = provider !== 'none' ? (apiKeysMap[provider] || '') : '';
   const customEndpoint = (await db.settings.get(AI_SETTINGS_KEYS.CUSTOM_ENDPOINT))?.value || '';
+  const customHeaders = (await db.settings.get(AI_SETTINGS_KEYS.CUSTOM_HEADERS))?.value || '';
   const customModel = (await db.settings.get(AI_SETTINGS_KEYS.CUSTOM_MODEL))?.value || '';
   let model = (await db.settings.get(AI_SETTINGS_KEYS.MODEL))?.value || '';
   // If ai_model does not exist but ai_custom_model is present, auto-promote model = customModel
@@ -35,6 +36,7 @@ export async function getAiSettings(): Promise<AiSettings> {
   const legacyAutoCategorize = (await db.settings.get(AI_SETTINGS_KEYS.AUTO_CATEGORIZE))?.value;
   const autoTags = (await db.settings.get(AI_SETTINGS_KEYS.AUTO_TAGS))?.value ?? legacyAutoCategorize ?? true;
   const autoFolder = (await db.settings.get(AI_SETTINGS_KEYS.AUTO_FOLDER))?.value ?? legacyAutoCategorize ?? true;
+  const autoOnBrowserBookmark = (await db.settings.get(AI_SETTINGS_KEYS.AUTO_ON_BROWSER_BOOKMARK))?.value ?? true;
 
   const rawConcurrency = (await db.settings.get(AI_SETTINGS_KEYS.CONCURRENCY))?.value;
   const parsedConcurrency = typeof rawConcurrency === 'number' ? rawConcurrency : (typeof rawConcurrency === 'string' ? parseInt(rawConcurrency, 10) : undefined);
@@ -49,11 +51,13 @@ export async function getAiSettings(): Promise<AiSettings> {
     apiKeysMap,
     cachedModelsMap,
     customEndpoint,
+    customHeaders,
     customModel: customModel || model,
     autoSummarize,
     autoCategorize: legacyAutoCategorize ?? true,
     autoTags,
     autoFolder,
+    autoOnBrowserBookmark,
     concurrency
   };
 }
@@ -105,10 +109,12 @@ export async function saveAiSettings(settings: AiSettings): Promise<void> {
   }
 
   if (settings.customEndpoint !== undefined) await db.settings.put({ key: AI_SETTINGS_KEYS.CUSTOM_ENDPOINT, value: settings.customEndpoint });
+  if (settings.customHeaders !== undefined) await db.settings.put({ key: AI_SETTINGS_KEYS.CUSTOM_HEADERS, value: settings.customHeaders });
   await db.settings.put({ key: AI_SETTINGS_KEYS.AUTO_SUMMARIZE, value: settings.autoSummarize });
   // Save using new keys only — legacy ai_auto_categorize key is maintained only for backward compatibility loading
   if (settings.autoTags !== undefined) await db.settings.put({ key: AI_SETTINGS_KEYS.AUTO_TAGS, value: settings.autoTags });
   if (settings.autoFolder !== undefined) await db.settings.put({ key: AI_SETTINGS_KEYS.AUTO_FOLDER, value: settings.autoFolder });
+  if (settings.autoOnBrowserBookmark !== undefined) await db.settings.put({ key: AI_SETTINGS_KEYS.AUTO_ON_BROWSER_BOOKMARK, value: settings.autoOnBrowserBookmark });
   if (settings.concurrency !== undefined) {
     const parsed = Number(settings.concurrency);
     const clamped = Number.isFinite(parsed)

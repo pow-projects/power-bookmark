@@ -62,92 +62,19 @@ export function resolveUrl(base: string, relative: string): string {
   }
 }
 
-/**
- * Generic check for blank, transparent, 1x1, spacer, or LQIP / blur / low-res placeholder image URLs.
- */
-export function isPlaceholderUrl(src: string | null | undefined): boolean {
-  if (!src) return true;
-  const s = src.trim();
-  if (!s) return true;
-  if (s.startsWith('data:image/')) {
-    if (s.length < 256) return true;
-    if (s.includes('R0lGODlhAQABA') || s.includes('PHN2Z') || s.includes('iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB')) {
-      return true;
-    }
-  }
-  if (/(?:^|\/)(?:blank|empty|spacer|pixel|transparent|1x1|dot|clear)\.(?:gif|png|jpe?g|webp|svg)(?:\?.*)?$/i.test(s)) {
-    return true;
-  }
+import {
+  isPlaceholderUrl,
+  GENERIC_LAZY_SRC_ATTRS,
+  GENERIC_LAZY_SRCSET_ATTRS,
+  isAnimatedMicroVideo
+} from './live-dom-preparer';
 
-  // Canonical Naver full-res image type parameter (?type=w2 or ?type=w966 without blur) is not a placeholder
-  if (/[?&]type=w\d+(?:&|$)/i.test(s) && !s.toLowerCase().includes('blur')) {
-    return false;
-  }
-
-  // Detect LQIP / blur / low-res indicators in filename or query parameters
-  if (
-    /(?:^|\/|[._-])blur(?:[._\-/]|\.|$|=|&)/i.test(s) ||
-    s.toLowerCase().includes('_blur') ||
-    /[?&](?:type=)?(?:w\d+_blur|m_blur|blur|thumb|thumbnail|preview|lowres|mini|s\d+|w\d+|q\d+)(?:=[^&]*)?(?:&|$)/i.test(s)
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-export const GENERIC_LAZY_SRC_ATTRS: readonly string[] = [
-  'data-lazy-src',
-  'data-original',
-  'data-src',
-  'data-actualsrc',
-  'data-url',
-  'data-hi-res-src',
-  'data-high-res-src',
-  'data-origin-src',
-  'data-orig-file',
-  'data-origin-file',
-  'data-original-file',
-  'data-source-url',
-  'data-zoom-src',
-  'data-lazy',
-  'data-original-src',
-  'data-echo',
-  'data-image',
-  'data-thumb',
-  'data-thumbnail',
-  'thumburl',
-  'data-gif-url',
-  'data-full-url',
-  'data-large-file'
-] as const;
-
-export const GENERIC_LAZY_SRCSET_ATTRS: readonly string[] = [
-  'data-lazy-srcset',
-  'data-srcset',
-  'data-original-srcset'
-] as const;
-
-/**
- * Detects animated micro-videos (e.g. GIFs converted to MP4/WebM, looping muted animations, or blog GIF-video resources)
- */
-export function isAnimatedMicroVideo(el: Element): boolean {
-  if (el.tagName !== 'VIDEO') return false;
-  const hasLoop = el.hasAttribute('loop');
-  const isMuted = el.hasAttribute('muted') || (el as HTMLVideoElement).muted === true;
-  if (hasLoop && isMuted) return true;
-
-  const className = el.getAttribute('class') || '';
-  if (className.includes('_gifmp4') || className.includes('custom-se-image-video-resource')) {
-    return true;
-  }
-
-  if (el.hasAttribute('data-gif-url')) {
-    return true;
-  }
-
-  return false;
-}
+export {
+  isPlaceholderUrl,
+  GENERIC_LAZY_SRC_ATTRS,
+  GENERIC_LAZY_SRCSET_ATTRS,
+  isAnimatedMicroVideo
+};
 
 /**
  * Fetch wrapper function with timeout functionality.

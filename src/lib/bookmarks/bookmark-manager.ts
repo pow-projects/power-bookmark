@@ -110,6 +110,30 @@ const folderCreationLock = new AsyncLock();
 export class BookmarkManager {
   private static isListening = false;
   static isSyncMuted = false;
+  static isImporting = false;
+  static extensionCreatedBookmarkIds = new Set<string>();
+
+  private static creationTimestamps: number[] = [];
+  private static readonly BURST_WINDOW_MS = 2000;
+  private static readonly BURST_MAX_CREATIONS = 2;
+
+  /**
+   * Sliding-window burst rate limiter for bookmark creations (> 2 creations within 2000ms skips AI).
+   * Returns true if rate limit is exceeded (burst detected).
+   */
+  static recordCreationAndCheckBurst(now: number = Date.now()): boolean {
+    this.creationTimestamps = this.creationTimestamps.filter((t) => now - t < this.BURST_WINDOW_MS);
+    this.creationTimestamps.push(now);
+    return this.creationTimestamps.length > this.BURST_MAX_CREATIONS;
+  }
+
+  static _resetForTest(): void {
+    this.isListening = false;
+    this.isSyncMuted = false;
+    this.isImporting = false;
+    this.extensionCreatedBookmarkIds.clear();
+    this.creationTimestamps = [];
+  }
 
   static setSyncMuted(muted: boolean): void {
     this.isSyncMuted = muted;
@@ -319,6 +343,20 @@ export class BookmarkManager {
     if (this.isListening) return;
     this.isListening = true;
 
+    // Import began/ended listeners with cross-browser safety checks (Firefox MV2/MV3 safety)
+    if (typeof browser !== 'undefined' && browser.bookmarks) {
+      if (typeof browser.bookmarks.onImportBegan?.addListener === 'function') {
+        browser.bookmarks.onImportBegan.addListener(() => {
+          BookmarkManager.isImporting = true;
+        });
+      }
+      if (typeof browser.bookmarks.onImportEnded?.addListener === 'function') {
+        browser.bookmarks.onImportEnded.addListener(() => {
+          BookmarkManager.isImporting = false;
+        });
+      }
+    }
+
     // Bookmark creation
     browser.bookmarks.onCreated.addListener(async (id, node) => {
       if (this.isSyncMuted) return;
@@ -338,6 +376,17 @@ export class BookmarkManager {
         }
       }
 
+      // Check if created by extension to prevent duplicate/payload-drop race conditions with popup creation
+      const isExtensionCreated = BookmarkManager.extensionCreatedBookmarkIds.has(id);
+      if (isExtensionCreated) {
+        BookmarkManager.extensionCreatedBookmarkIds.delete(id);
+      }
+
+      // Sliding-window burst rate limiter check
+      const isBurst = BookmarkManager.recordCreationAndCheckBurst();
+
+      let newlyAddedBookmarkId: number | undefined;
+
       await db.transaction('rw', [db.bookmarks, db.settings], async () => {
         const exists = await db.bookmarks.where('bookmarkId').equals(id).first();
         if (!exists) {
@@ -350,7 +399,7 @@ export class BookmarkManager {
           await removeTombstone(newSyncId);
 
           const now = Date.now();
-          await db.bookmarks.add({
+          newlyAddedBookmarkId = await db.bookmarks.add({
             syncId: newSyncId,
             bookmarkId: id,
             url: node.url || '',
@@ -361,8 +410,61 @@ export class BookmarkManager {
             modifiedAt: Math.max(node.dateAdded || 0, now),
             visitCount: 0
           });
+          BookmarkManager.notifyBookmarksChanged();
         }
       });
+
+      // Split Transaction Boundary Rule strictly observed:
+      // all tab queries, settings checks, and enqueueAiJob calls happen OUTSIDE db.transaction using dynamic imports.
+      if (newlyAddedBookmarkId != null && !isExtensionCreated && !isBurst && !BookmarkManager.isImporting) {
+        if (/^https?:\/\//i.test(node.url)) {
+          let isFromActiveTab = false;
+          try {
+            if (typeof browser !== 'undefined' && browser.tabs?.query) {
+              const tabs = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+              const activeTab = tabs && tabs[0];
+              if (activeTab?.url && /^https?:\/\//i.test(activeTab.url)) {
+                if (normalizeUrl(node.url) === normalizeUrl(activeTab.url)) {
+                  isFromActiveTab = true;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[BookmarkManager] Failed to query active tab for AI trigger:', e);
+          }
+
+          if (isFromActiveTab) {
+            try {
+              const { getAiSettings, isAiConfigured } = await import('../ai/ai-summarizer');
+              if (await isAiConfigured()) {
+                const settings = await getAiSettings();
+                const autoOnBrowser = settings.autoOnBrowserBookmark ?? true;
+                if (autoOnBrowser) {
+                  const hasAutoAction = !!(settings.autoSummarize || settings.autoTags || settings.autoFolder);
+                  if (hasAutoAction) {
+                    const { enqueueAiJob } = await import('../ai/ai-queue');
+                    await enqueueAiJob({
+                      bookmarkId: newlyAddedBookmarkId,
+                      kind: 'auto',
+                      payload: {
+                        title: node.title,
+                        url: node.url
+                      },
+                      options: {
+                        autoSummarize: settings.autoSummarize,
+                        autoTags: settings.autoTags,
+                        autoFolder: settings.autoFolder
+                      }
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              console.error('[BookmarkManager] Failed to trigger browser native bookmark AI:', e);
+            }
+          }
+        }
+      }
     });
 
     // Bookmark deletion
@@ -391,6 +493,7 @@ export class BookmarkManager {
             deleteArchiveFromCloud(local.syncId).catch((e) => console.warn('[BookmarkManager] Failed to delete cloud archive on bookmark remove:', e));
           } catch {}
         }
+        BookmarkManager.notifyBookmarksChanged();
       }
     });
 
@@ -408,6 +511,7 @@ export class BookmarkManager {
           if (changeInfo.title !== undefined) updateData.title = changeInfo.title;
           if (changeInfo.url !== undefined) updateData.url = changeInfo.url;
           await db.bookmarks.update(local.id!, updateData);
+          BookmarkManager.notifyBookmarksChanged();
         }
       }
     });
@@ -424,11 +528,26 @@ export class BookmarkManager {
             folderPath: newPath,
             modifiedAt: Date.now()
           });
+          BookmarkManager.notifyBookmarksChanged();
         }
       }
     });
     
     console.log('Started listening to browser bookmark events.');
+  }
+
+  static notifyBookmarksChanged(): void {
+    if (typeof document !== 'undefined') {
+      document.dispatchEvent(new CustomEvent('bookmarks-updated'));
+    }
+    if (typeof browser !== 'undefined') {
+      if (browser.storage?.local?.set) {
+        browser.storage.local.set({ bookmarks_last_updated: Date.now() }).catch(() => {});
+      }
+      if (browser.runtime?.sendMessage) {
+        browser.runtime.sendMessage({ type: 'BOOKMARKS_UPDATED' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -448,6 +567,12 @@ export class BookmarkManager {
       title,
       parentId
     });
+    BookmarkManager.extensionCreatedBookmarkIds.add(node.id);
+    try {
+      if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
+        browser.runtime.sendMessage({ type: 'MARK_EXTENSION_BOOKMARK', bookmarkId: node.id }).catch(() => {});
+      }
+    } catch {}
 
     await refreshFolderCache();
     const folderPath = getFolderPathForNode(node.parentId);

@@ -187,6 +187,47 @@ describe('SettingsContainer AI UI', () => {
     component.$destroy();
   });
 
+  it('사용자 정의 API(Custom API) 선택 시 API Key 필드가 노출되며, API Key가 비어있어도(llama.cpp 등) 모델 설정이 가능하고 키 입력(OpenCode 등)도 지원한다', async () => {
+    const { default: SettingsContainer } = await import('../../src/components/management/SettingsContainer.svelte');
+    
+    const target = document.body;
+    const component = new SettingsContainer({ target, props: { initialSection: 'ai' } });
+    await tick();
+
+    const providerSelect = document.getElementById('ai-provider') as HTMLSelectElement;
+    providerSelect.value = 'custom';
+    providerSelect.dispatchEvent(new Event('change'));
+    await tick();
+
+    // 1. API Key input should be rendered for custom provider
+    const apiKeyInput = document.getElementById('api-key') as HTMLInputElement;
+    expect(apiKeyInput).not.toBeNull();
+    expect(apiKeyInput.placeholder).toContain('llama.cpp');
+
+    // 2. Model input should be enabled even without API Key (for llama.cpp)
+    const modelInput = document.getElementById('ai-model') as HTMLInputElement;
+    expect(modelInput).not.toBeNull();
+    expect(modelInput.disabled).toBe(false);
+
+    // 3. User can input API Key (for OpenCode / remote proxies)
+    apiKeyInput.value = 'sk-custom-opencode-token-12345';
+    apiKeyInput.dispatchEvent(new Event('input'));
+    await tick();
+
+    expect(apiKeyInput.value).toBe('sk-custom-opencode-token-12345');
+    expect(modelInput.disabled).toBe(false);
+
+    // 4. Custom headers textarea should be rendered for custom provider
+    const headersTextarea = document.getElementById('ai-custom-headers') as HTMLTextAreaElement;
+    expect(headersTextarea).not.toBeNull();
+    headersTextarea.value = 'X-Custom-Header: value123';
+    headersTextarea.dispatchEvent(new Event('input'));
+    await tick();
+    expect(headersTextarea.value).toBe('X-Custom-Header: value123');
+
+    component.$destroy();
+  });
+
   describe('resolveDefaultModel 헬퍼', () => {
     it('1) 현재 모델이 페칭 목록에 존재하면 현재 모델 유지', async () => {
       const { resolveDefaultModel } = await import('../../src/components/management/settings/AiSettings.svelte');

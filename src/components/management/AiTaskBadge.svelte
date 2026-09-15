@@ -5,6 +5,8 @@
 
   export let bookmarkId: number;
   export let label = '';
+  export let attempts: number | undefined = undefined;
+  export let maxAttempts = 3;
 
   let hovered = false;
   const dispatch = createEventDispatcher<{ cancel: { bookmarkId: number } }>();
@@ -12,12 +14,19 @@
   function cancel() {
     dispatch('cancel', { bookmarkId });
   }
+
+  $: attemptSuffix = attempts && attempts > 0 ? ` (${attempts}/${maxAttempts})` : '';
 </script>
 
 <button
   class="ai-task-badge"
   class:cancel={hovered}
-  title={i18n.t('ai.taskCancelTooltip')}
+  class:retrying={Boolean(attempts && attempts > 0)}
+  title={hovered
+    ? i18n.t('ai.taskCancelTooltip')
+    : attempts && attempts > 0
+    ? i18n.t('ai.retryingAttempt', { current: attempts, max: maxAttempts })
+    : i18n.t('ai.taskCancelTooltip')}
   on:mouseenter={() => (hovered = true)}
   on:mouseleave={() => (hovered = false)}
   on:click={cancel}
@@ -27,7 +36,7 @@
     {i18n.t('ai.taskCancel')}
   {:else}
     <Spinner size={12} variant="inline" />
-    {label || i18n.t('ai.taskBadge')}
+    {(label || i18n.t('ai.taskBadge')) + attemptSuffix}
   {/if}
 </button>
 

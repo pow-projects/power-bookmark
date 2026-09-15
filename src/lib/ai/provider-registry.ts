@@ -4,6 +4,8 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { LanguageModel } from 'ai';
 import { AiSettings } from './types';
 import aiProvidersData from './ai-providers.json';
+import { getOpenCodeSessionId } from './opencode-session';
+import { parseCustomHeaders } from './custom-headers';
 
 export interface ModelDefinition {
   id: string;
@@ -19,6 +21,7 @@ export interface ProviderDefinition {
   description?: string;
   features?: string[];
   defaultModels?: string[];
+  defaultEndpoint?: string;
   docsUrl?: string;
   isLocal?: boolean;
   models: ModelDefinition[];
@@ -42,6 +45,7 @@ export const DEFAULT_ENDPOINTS: Record<string, string> = {
   'text-generation-webui': 'http://localhost:5000/v1',
   anythingllm: 'http://localhost:3001/api/v1',
   custom: 'http://localhost:8080/v1',
+  opencode: 'https://opencode.ai/zen/go/v1',
   openrouter: 'https://openrouter.ai/api/v1',
   perplexity: 'https://api.perplexity.ai',
   deepseek: 'https://api.deepseek.com',
@@ -93,9 +97,21 @@ function createModelForProvider(
 
   // Standard OpenAI compatible model creation for other providers
   const baseURL = customEndpoint || DEFAULT_ENDPOINTS[providerId];
+  const customHeaders = options?.customHeaders ? parseCustomHeaders(options.customHeaders) : {};
+  const headers: Record<string, string> = {
+    ...customHeaders,
+    ...(options?.headers || {})
+  };
+  if (providerId === 'opencode' || providerId === 'custom' || (baseURL && (baseURL.includes('opencode') || baseURL.includes('console.go')))) {
+    if (!headers['x-opencode-session']) {
+      headers['x-opencode-session'] = options?.sessionId || getOpenCodeSessionId();
+    }
+  }
+
   const openai = createOpenAI({
     apiKey: apiKey || 'empty',
-    ...(baseURL ? { baseURL } : {})
+    ...(baseURL ? { baseURL } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {})
   });
   return openai(modelId);
 }
@@ -118,6 +134,7 @@ const buildProvidersMap = (): Record<string, ProviderDefinition> => {
       description: item.description,
       features: item.features,
       defaultModels: item.defaultModels,
+      defaultEndpoint: item.defaultEndpoint,
       docsUrl: item.docsUrl,
       isLocal: item.isLocal,
       models,
@@ -218,6 +235,7 @@ export function getLanguageModel(settings: AiSettings): LanguageModel {
 
   return provider.createModel(settings.apiKey, modelId.trim(), {
     customEndpoint: settings.customEndpoint,
+    customHeaders: settings.customHeaders,
   });
 }
 

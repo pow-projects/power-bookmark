@@ -31,7 +31,7 @@ npm run build:chrome && npm run zip:chrome
 npm run build:firefox && npm run zip:firefox
 ```
 
-Build output lands in `output/chrome-mv3` and `output/firefox`.
+Build output lands in `.output/chrome-mv3` and `.output/firefox-mv2` (zips: `.output/*.zip`).
 
 ## Tech stack
 

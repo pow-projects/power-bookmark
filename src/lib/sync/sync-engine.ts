@@ -648,9 +648,9 @@ export class SyncEngine {
           if (conflictSyncIdSet.has(b.syncId) && cloudBySyncId.has(b.syncId)) {
             target = cloudBySyncId.get(b.syncId)!;
           }
-          // Exclude aiStatus (transient), aiCategory, aiSummary (removed fields), syncedAt (local-only), crossRootReview from cloud serialization
+          // Exclude aiStatus, aiAttempts, aiError (transient), aiCategory, aiSummary (removed fields), syncedAt (local-only), crossRootReview from cloud serialization
           // Also exclude id (device local IndexedDB auto-increment key)
-          const { id, aiStatus, aiCategory, aiSummary, syncedAt, crossRootReview, ...rest } = target;
+          const { id, aiStatus, aiAttempts, aiError, aiCategory, aiSummary, syncedAt, crossRootReview, ...rest } = target;
           return rest;
         }),
         tombstones: persistedTombstones,
@@ -720,6 +720,29 @@ export class SyncEngine {
         await refreshCloudArchiveIndex();
       } catch (archiveIdxErr) {
         console.warn('Failed to sync archives / refresh cloud archive index during sync:', archiveIdxErr);
+      }
+
+      // Notify open management pages and extension contexts of sync completion and updated bookmarks
+      const syncCompletedAt = Date.now();
+      if (typeof document !== 'undefined') {
+        document.dispatchEvent(new CustomEvent('sync-resolved'));
+        document.dispatchEvent(new CustomEvent('bookmarks-updated'));
+      }
+      if (typeof browser !== 'undefined') {
+        if (browser.storage?.local?.set) {
+          try {
+            await browser.storage.local.set({
+              sync_last_completed: syncCompletedAt,
+              bookmarks_last_updated: syncCompletedAt
+            });
+          } catch {}
+        }
+        if (browser.runtime?.sendMessage) {
+          try {
+            browser.runtime.sendMessage({ type: 'SYNC_RESOLVED' }).catch(() => {});
+            browser.runtime.sendMessage({ type: 'BOOKMARKS_UPDATED' }).catch(() => {});
+          } catch {}
+        }
       }
     } catch (error: any) {
       console.error('Synchronization failed:', error);

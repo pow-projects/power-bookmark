@@ -22,6 +22,7 @@
   import ActionButtons from '../../components/popup/ActionButtons.svelte';
   import Icon from '../../components/shared/Icon.svelte';
   import { setTaskIndicator } from '../../lib/bookmarks/badge-manager';
+  import { formatApproximateAiError } from '../../lib/ai/ai-error-formatter';
 
   // Tab data
   let currentTab: chrome.tabs.Tab | null = null;
@@ -42,12 +43,14 @@
   let isArchiving = false;
   let isSaving = false;
   let isDeleting = false;
-  let successAction: 'archive' | 'delete' | null = null;
+  let successAction: 'archive' | 'delete' | 'save' | null = null;
   let errorMessage: string | null = null;
 
   // v2 — Registered item card state
   let archiveStatus: 'none' | 'in_progress' | 'archived' = 'none';
   let aiStatus: NonNullable<Bookmark['aiStatus']> = 'none';
+  let aiAttempts: number | undefined = undefined;
+  let aiError: string | undefined = undefined;
   let saveIndicator: 'idle' | 'saving' = 'idle'; // Autosave indicator (no completed state display — in-progress only)
   let archiveInSince: number | null = null; // in_progress optimistic timing (for fallback timeout)
 
@@ -57,6 +60,7 @@
   // Autosave debounce
   let autosaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let statusPollTimer: ReturnType<typeof setInterval> | null = null;
+  let storageListener: ((changes: Record<string, any>, areaName: string) => void) | null = null;
   let lastSavedTitle = '';
   let lastSavedDescription = '';
   let lastSavedFolderId = '';
@@ -117,11 +121,6 @@
       // Set default values
       if (url && !title) title = url;
       if (folderId === '' && folders.length > 0) folderId = folders[0].id;
-
-      // Auto-registration path: existing item is already REGISTERED, new item created immediately here
-      if (!isEditMode) {
-        await autoAddBookmark();
-      }
     } catch (error) {
       console.error('Popup onMount error:', error);
       errorMessage = i18n.t('popup.error.pageLoadFailed');
@@ -138,10 +137,24 @@
         archiveStatus = archived ? 'archived' : (archiveStatus === 'in_progress' ? 'in_progress' : 'none');
         const existing = await db.bookmarks.get(localBookmarkId).catch(() => undefined);
         aiStatus = (existing?.aiStatus ?? 'none') as NonNullable<Bookmark['aiStatus']>;
+        aiAttempts = existing?.aiAttempts;
+        aiError = existing?.aiError;
       } catch (error) {
         console.error('[Popup] Failed to initialize pipeline status:', error);
       }
       startStatusPolling();
+
+      // Immediately react to AI analysis updates while popup is open
+      if (typeof browser !== 'undefined' && browser.storage?.onChanged) {
+        storageListener = (changes, area) => {
+          if (area === 'local' && (changes['ai_analysis_last_update'] || changes['ai_analysis_error'])) {
+            void pollStatus();
+          }
+        };
+        try {
+          browser.storage.onChanged.addListener(storageListener);
+        } catch { /* ignore */ }
+      }
 
       // Re-check hasArchive after cloud index refresh (maintain existing logic)
       browser.runtime.sendMessage({ type: 'ARCHIVE_INDEX_REFRESH' }).then(async () => {
@@ -156,6 +169,12 @@
   onDestroy(() => {
     stopStatusPolling();
     if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
+    if (storageListener && typeof browser !== 'undefined' && browser.storage?.onChanged) {
+      try {
+        browser.storage.onChanged.removeListener(storageListener);
+      } catch { /* ignore */ }
+      storageListener = null;
+    }
   });
 
   /**
@@ -395,6 +414,8 @@
     try {
       const existing = await db.bookmarks.get(localBookmarkId);
       aiStatus = (existing?.aiStatus ?? 'none') as NonNullable<Bookmark['aiStatus']>;
+      aiAttempts = existing?.aiAttempts;
+      aiError = existing?.aiError;
     } catch {
       // DB not ready, etc. — retry on next poll
     }
@@ -535,10 +556,17 @@
   async function handleRetryAdd() {
     if (isAdding || successAction) return;
     errorMessage = null;
+    if (!currentTab) {
+      currentTab = await getActiveTab();
+      if (currentTab) {
+        url = currentTab.url || '';
+        title = currentTab.title || url;
+      }
+    }
     await autoAddBookmark();
   }
 
-  async function triggerSuccess(action?: 'archive' | 'delete') {
+  async function triggerSuccess(action?: 'archive' | 'delete' | 'save') {
     if (action) {
       successAction = action;
     } else if (!successAction) {
@@ -548,6 +576,43 @@
     setTimeout(() => {
       window.close();
     }, 800);
+  }
+
+  async function handleSaveBookmark() {
+    if (isAdding || isArchiving || successAction !== null) return;
+    errorMessage = null;
+    try {
+      const id = await doAddBookmark(false);
+      if (id !== null) {
+        lastSavedTitle = title;
+        lastSavedDescription = description;
+        lastSavedFolderId = folderId;
+        await triggerSuccess('save');
+      }
+    } catch (error: any) {
+      console.error('[Popup] Save bookmark failed:', error);
+      errorMessage = i18n.t('popup.error.createFailed', { error: error.message || i18n.t('common.unknownError') });
+    }
+  }
+
+  async function handleSaveAndArchive() {
+    if (isAdding || isArchiving || successAction !== null) return;
+    errorMessage = null;
+    isArchiving = true;
+    try {
+      const id = await doAddBookmark(true);
+      if (id !== null && !errorMessage) {
+        lastSavedTitle = title;
+        lastSavedDescription = description;
+        lastSavedFolderId = folderId;
+        await triggerSuccess('archive');
+      }
+    } catch (error: any) {
+      console.error('[Popup] Save and archive failed:', error);
+      errorMessage = i18n.t('popup.error.archiveSaveFailed', { error: error.message || i18n.t('common.unknownError') });
+    } finally {
+      isArchiving = false;
+    }
   }
 
   async function autoAddBookmark(): Promise<void> {
@@ -584,7 +649,7 @@
     startStatusPolling();
   }
 
-  async function doAddBookmark(): Promise<number | null> {
+  async function doAddBookmark(forceArchive: boolean = false): Promise<number | null> {
     if (localBookmarkId !== null && isEditMode) return localBookmarkId; // Already in edit mode
     if (!currentTab?.id) return null;
     const effectiveUrl = url || currentTab.url;
@@ -626,11 +691,11 @@
       //      pending record/gate handled inside dispatchBackgroundAiAnalysis (recovers f23ec34 deletion incident)
       await dispatchBackgroundAiAnalysis(bookmarkData.id);
 
-      // 4. If autoArchive is enabled, enqueue background pipeline immediately (optimistic)
-      //    Capture/enqueue failure is not a reason to transition registration (bookmark creation) to FAILED (R5: non-blocking)
+      // 4. If forceArchive or autoArchive is enabled, enqueue background pipeline immediately (optimistic)
+      //    When forceArchive is requested explicitly, rethrow error to notify caller
       try {
         const autoArchive = (await db.settings.get('auto_archive'))?.value === true;
-        if (autoArchive && currentTab?.id) {
+        if ((forceArchive || autoArchive) && currentTab?.id) {
           const htmlResult = await extractTabHtml(currentTab.id).catch(() => ({ html: '', iframeSources: {} as Record<string, string> }));
           const htmlWithBanner = buildArchiveBannerHtml(htmlResult.html);
           const compress = (await db.settings.get('archive_compress'))?.value ?? true;
@@ -654,7 +719,11 @@
           }
           markArchiveInProgress(); // Optimistic — reflect in status line immediately on enqueue success
         }
-      } catch (e) {
+      } catch (e: any) {
+        if (forceArchive) {
+          errorMessage = i18n.t('popup.error.archiveSaveFailed', { error: e.message || i18n.t('common.unknownError') });
+          return bookmarkData.id;
+        }
         console.warn('[Popup] Failed to start background archive processing:', e);
         // Ignore - non-critical
       }
@@ -743,21 +812,18 @@
       <div class="loading-container">
         <span class="loading-text">{i18n.t('common.loading')}</span>
       </div>
-    {:else if localBookmarkId === null}
-      <!-- FAILED: Auto-save failed / no page info -> [Save Again] (R2 fallback) -->
+    {:else if !currentTab}
+      <!-- No page info -->
       <div class="failed-state">
-        <button
-          type="button"
-          class="btn btn-primary retry-btn"
-          on:click={handleRetryAdd}
-          disabled={isAdding || successAction !== null}
-        >
-          <Icon name="refresh-cw" size={14} />
-          {i18n.t('common.retry')}
-        </button>
+        <p class="empty-hint">{i18n.t('popup.error.noPage')}</p>
       </div>
+      <footer class="popup-footer">
+        <button type="button" class="btn btn-secondary btn-manage" on:click={handleManage}>
+          <Icon name="layout" size={14} />
+          <span>{i18n.t('openManagement')}</span>
+        </button>
+      </footer>
     {:else}
-      <!-- REGISTERED: Registered item card -->
       <header class="header">
         <div class="logo">
           <Icon name="bookmark" size={16} />
@@ -780,50 +846,95 @@
         on:createFolder={handleCreateFolder}
       />
 
-      <!-- Pipeline progress/error line — completed/idle states are not displayed (buttons/form already express them) -->
-      {#if archiveStatus === 'in_progress' || aiStatus === 'pending' || aiStatus === 'running' || aiStatus === 'error'}
-        <div class="pipeline-lines" aria-live="polite">
-          {#if archiveStatus === 'in_progress'}
-            <div class="pipeline-row">
-              <span class="pipeline-label">{i18n.t('settings.tabs.archive')}</span>
-              <span class="pipeline-value">
-                <span class="spin"><Icon name="refresh-cw" size={11} /></span>
-                {i18n.t('archive.saving')}
-              </span>
-            </div>
-          {/if}
-          {#if aiStatus === 'pending' || aiStatus === 'running'}
-            <div class="pipeline-row">
-              <span class="pipeline-label">{i18n.t('settings.tabs.ai')}</span>
-              <span class="pipeline-value">
-                <span class="spin"><Icon name="refresh-cw" size={11} /></span>
-                {i18n.t('badge.aiAnalyzing')}
-              </span>
-            </div>
-          {:else if aiStatus === 'error'}
-            <div class="pipeline-row">
-              <span class="pipeline-label">{i18n.t('settings.tabs.ai')}</span>
-              <span class="pipeline-value is-error">
-                <Icon name="alert-triangle" size={11} />
-                {i18n.t('common.error')}
-              </span>
-            </div>
-          {/if}
+      {#if isEditMode && successAction !== 'save' && successAction !== 'archive'}
+        <!-- REGISTERED: Pipeline progress/error line — completed/idle states are not displayed (buttons/form already express them) -->
+        {#if archiveStatus === 'in_progress' || aiStatus === 'pending' || aiStatus === 'running' || aiStatus === 'error'}
+          <div class="pipeline-lines" aria-live="polite">
+            {#if archiveStatus === 'in_progress'}
+              <div class="pipeline-row">
+                <span class="pipeline-label">{i18n.t('settings.tabs.archive')}</span>
+                <span class="pipeline-value">
+                  <span class="spin"><Icon name="refresh-cw" size={11} /></span>
+                  {i18n.t('archive.saving')}
+                </span>
+              </div>
+            {/if}
+            {#if aiStatus === 'pending' || aiStatus === 'running'}
+              <div class="pipeline-row">
+                <span class="pipeline-label">{i18n.t('settings.tabs.ai')}</span>
+                <span class="pipeline-value" title={aiAttempts && aiAttempts > 0 ? i18n.t('ai.retryingAttempt', { current: aiAttempts, max: 3 }) : undefined}>
+                  <span class="spin"><Icon name="refresh-cw" size={11} /></span>
+                  {i18n.t('badge.aiAnalyzing')}{aiAttempts && aiAttempts > 0 ? ` (${aiAttempts}/3)` : ''}
+                </span>
+              </div>
+            {:else if aiStatus === 'error'}
+              {@const approx = aiError ? formatApproximateAiError(aiError) : ''}
+              <div class="pipeline-row">
+                <span class="pipeline-label">{i18n.t('settings.tabs.ai')}</span>
+                <span class="pipeline-value is-error" title={aiError ? `${i18n.t('ai.analysisFailed')}: ${aiError}` : undefined}>
+                  <Icon name="alert-triangle" size={11} />
+                  {approx || i18n.t('common.error')}
+                </span>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <ActionButtons
+          {hasArchive}
+          {isArchiving}
+          {isDeleting}
+          {successAction}
+          on:archive={handleArchiveHtml}
+          on:viewArchive={handleViewArchive}
+          on:delete={handleDeleteBookmark}
+        />
+      {:else}
+        <!-- UNREGISTERED: "Save Bookmark" & "Save Archive" Buttons -->
+        <div class="actions-row new-bookmark-actions">
+          <button
+            type="button"
+            class="btn btn-primary btn-save-bookmark"
+            disabled={isAdding || isArchiving || successAction !== null || !url}
+            on:click={handleSaveBookmark}
+          >
+            {#if successAction === 'save'}
+              <Icon name="check" size={16} />
+              <span>{i18n.t('popup.saved')}</span>
+            {:else if isAdding && !isArchiving}
+              <span class="spin"><Icon name="refresh-cw" size={14} /></span>
+              <span>{i18n.t('popup.saving')}</span>
+            {:else}
+              <Icon name="bookmark" size={16} />
+              <span>{i18n.t('popup.actions.saveBookmark')}</span>
+            {/if}
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-secondary btn-archive-bookmark"
+            disabled={isAdding || isArchiving || successAction !== null || !url}
+            on:click={handleSaveAndArchive}
+          >
+            {#if successAction === 'archive'}
+              <Icon name="check" size={16} />
+              <span>{i18n.t('popup.saved')}</span>
+            {:else if isArchiving}
+              <span class="spin"><Icon name="refresh-cw" size={14} /></span>
+              <span>{i18n.t('popup.saving')}</span>
+            {:else}
+              <Icon name="archive" size={16} />
+              <span>{i18n.t('popup.actions.saveArchive')}</span>
+            {/if}
+          </button>
         </div>
       {/if}
 
-      <ActionButtons
-        {hasArchive}
-        {isArchiving}
-        {isDeleting}
-        {successAction}
-        on:archive={handleArchiveHtml}
-        on:viewArchive={handleViewArchive}
-        on:delete={handleDeleteBookmark}
-      />
-
       <footer class="popup-footer">
-        <button type="button" class="manage-link" on:click={handleManage}>{i18n.t('popup.manage')}</button>
+        <button type="button" class="btn btn-secondary btn-manage" on:click={handleManage}>
+          <Icon name="layout" size={14} />
+          <span>{i18n.t('openManagement')}</span>
+        </button>
       </footer>
     {/if}
   </div>
@@ -947,15 +1058,11 @@
     background: var(--bg-tertiary);
   }
 
-  /* FAILED: [Save Again] */
+  /* FAILED / EMPTY */
   .failed-state {
     display: flex;
     justify-content: center;
     padding: 1.25rem 0.5rem 0.75rem;
-  }
-  .retry-btn {
-    width: 100%;
-    max-width: 240px;
   }
 
   /* Background pipeline status line — mono, non-blocking */
@@ -994,26 +1101,63 @@
   }
   @keyframes pipeline-spin { to { transform: rotate(360deg); } }
 
-  /* Footer: [Management Page] button -> demoted to text link (R4) */
+  /* Actions row & Unregistered mode buttons */
+  .actions-row {
+    display: flex;
+    flex-direction: row;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+  }
+  .new-bookmark-actions .btn-save-bookmark,
+  .new-bookmark-actions .btn-archive-bookmark {
+    flex: 1;
+    min-width: 0;
+    min-height: 38px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    justify-content: center;
+    gap: 0.375rem;
+  }
+  .new-bookmark-actions .btn-archive-bookmark {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+  }
+  .new-bookmark-actions .btn-archive-bookmark:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  /* Footer: Clearly visible management page access button */
   .popup-footer {
     display: flex;
-    justify-content: flex-end;
-    margin-top: 0.5rem;
-    padding-top: 0.375rem;
+    margin-top: 0.625rem;
+    padding-top: 0.625rem;
     border-top: 1px dashed var(--border-color);
   }
-  .manage-link {
-    font-family: var(--font-mono);
-    font-size: var(--badge-font-size);
-    letter-spacing: 0.06em;
+  .btn-manage {
+    width: 100%;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.45rem 1rem;
+    font-size: 0.8125rem;
+    font-family: var(--font-primary);
+    font-weight: 500;
     color: var(--text-secondary);
-    background: none;
-    border: none;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
     cursor: pointer;
-    padding: 0.25rem 0;
-    transition: color var(--transition-fast);
+    transition: all var(--transition-fast);
   }
-  .manage-link:hover {
+  .btn-manage:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--color-primary);
     color: var(--color-primary);
+    transform: translateY(-1px);
   }
 </style>

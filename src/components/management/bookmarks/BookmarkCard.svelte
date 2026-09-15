@@ -116,7 +116,7 @@
     {:else}
       <div class="card-header-actions">
         {#if bookmark.aiStatus === 'running' || bookmark.aiStatus === 'pending'}
-          <AiTaskBadge bookmarkId={bookmark.id} on:cancel={() => { if (bookmark.id !== undefined) dispatch('cancelAi', { bookmarkId: bookmark.id }); }} />
+          <AiTaskBadge bookmarkId={bookmark.id} attempts={bookmark.aiAttempts} on:cancel={() => { if (bookmark.id !== undefined) dispatch('cancelAi', { bookmarkId: bookmark.id }); }} />
         {:else}
           <button
             type="button"

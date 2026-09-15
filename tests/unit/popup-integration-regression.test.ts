@@ -160,8 +160,8 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
     stubBrowser();
   });
 
-  describe('시나리오 1: 미등록 페이지에서 즉시 북마크 생성', () => {
-    it('미등록 페이지 → createBookmark가 호출되어 즉시 생성된다', async () => {
+  describe('시나리오 1: 미등록 페이지에서 북마크 저장 버튼 클릭 시 생성', () => {
+    it('미등록 페이지 → onMount 시 자동 생성되지 않고 [북마크 저장] 버튼 클릭 시 생성된다', async () => {
       setUnregisteredPage();
       (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
       (BookmarkManager.createBookmark as any).mockResolvedValue({
@@ -173,7 +173,19 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
         folderPath: '북마크바'
       });
 
-      await mountApp();
+      const { target } = await mountApp();
+
+      // onMount does NOT create bookmark
+      expect(BookmarkManager.createBookmark).not.toHaveBeenCalled();
+
+      const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
+      expect(saveBtn).not.toBeNull();
+      expect(saveBtn!.textContent).toContain('북마크 저장');
+
+      await saveBtn!.click();
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
 
       expect(BookmarkManager.createBookmark).toHaveBeenCalledTimes(1);
       const [urlArg, titleArg, folderIdArg] = (BookmarkManager.createBookmark as any).mock.calls[0];
@@ -182,19 +194,15 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
       expect(folderIdArg).toBe('1'); // Save to default folder (first in list)
     });
 
-    it('즉시 생성 성공 후 수정 모드로 전환되어 삭제 버튼이 표시된다', async () => {
+    it('관리 페이지 접속 링크가 명확한 버튼으로 표시된다', async () => {
       setUnregisteredPage();
       (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
-      (BookmarkManager.createBookmark as any).mockResolvedValue({
-        id: 7, syncId: 'sync-7', bookmarkId: 'bm-7',
-        url: TAB_UNREGISTERED.url, title: TAB_UNREGISTERED.title, folderPath: '북마크바'
-      });
 
       const { target } = await mountApp();
 
-      // After auto-creation isEditMode=true -> show edit-mode dedicated delete button
-      expect(target.querySelector('.btn-danger')).not.toBeNull();
-      expect(target.textContent).toContain('삭제');
+      const manageBtn = target.querySelector('.btn-manage') as HTMLButtonElement | null;
+      expect(manageBtn).not.toBeNull();
+      expect(manageBtn!.textContent).toContain('관리 페이지');
     });
   });
 

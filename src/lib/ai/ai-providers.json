@@ -179,6 +179,20 @@
       ]
     },
     {
+      "id": "opencode",
+      "name": "OpenCode Go",
+      "category": "openai-compatible",
+      "description": "OpenCode Go (Console Go) 전용 엔드포인트 및 세션 라우팅 지원",
+      "defaultEndpoint": "https://opencode.ai/zen/go/v1",
+      "defaultModels": [
+        "claude-3-7-sonnet",
+        "claude-3-5-sonnet",
+        "gpt-4o",
+        "deepseek-r1",
+        "deepseek-v3"
+      ]
+    },
+    {
       "id": "perplexity",
       "name": "Perplexity",
       "category": "openai-compatible",

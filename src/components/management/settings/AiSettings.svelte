@@ -36,9 +36,11 @@
   let apiKeysMap: Record<string, string> = {};
   let cachedModelsMap: Record<string, ModelDefinition[]> = {};
   let aiCustomEndpoint: string = '';
+  let aiCustomHeaders: string = '';
   let autoSummarize: boolean = false;
   let autoTags: boolean = true;
   let autoFolder: boolean = true;
+  let autoOnBrowserBookmark: boolean = true;
   let aiConcurrency: number = AI_CONCURRENCY_CONFIG.DEFAULT;
 
   function decrementConcurrency() {
@@ -204,10 +206,13 @@
     }
   }
 
-  onMount(async () => {
-    if (typeof window !== 'undefined') {
-      window.addEventListener('click', handleClickOutside);
-    }
+  let isLoaded = false;
+  let isLoading = true;
+  let loadError: string | null = null;
+
+  async function loadAiSettings() {
+    isLoading = true;
+    loadError = null;
     try {
       const s = await getAiSettings();
       apiKeysMap = { ...(s.apiKeysMap || {}) };
@@ -216,9 +221,13 @@
       aiModel = s.model || '';
       aiApiKey = s.apiKey || apiKeysMap[aiProvider] || '';
       aiCustomEndpoint = s.customEndpoint || '';
+      aiCustomHeaders = s.customHeaders
+        ? (typeof s.customHeaders === 'string' ? s.customHeaders : JSON.stringify(s.customHeaders, null, 2))
+        : '';
       autoSummarize = s.autoSummarize ?? false;
       autoTags = s.autoTags ?? true;
       autoFolder = s.autoFolder ?? true;
+      autoOnBrowserBookmark = s.autoOnBrowserBookmark ?? true;
       aiConcurrency = s.concurrency ?? 2;
 
       if (aiProvider !== 'none') {
@@ -232,9 +241,20 @@
           autoFetchModels(true);
         }
       }
-    } catch (e) {
-      // ignore
+      isLoaded = true;
+    } catch (e: any) {
+      console.error('Failed to load AI settings:', e);
+      loadError = e?.message || 'Failed to load AI settings';
+    } finally {
+      isLoading = false;
     }
+  }
+
+  onMount(async () => {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('click', handleClickOutside);
+    }
+    await loadAiSettings();
   });
 
   onDestroy(() => {
@@ -273,7 +293,7 @@
     isFetchingModels = true;
     fetchErrorMessage = '';
     try {
-      const res = await fetchAvailableModelsWithValidation(aiProvider, aiApiKey, aiCustomEndpoint);
+      const res = await fetchAvailableModelsWithValidation(aiProvider, aiApiKey, aiCustomEndpoint, aiCustomHeaders);
       if (res.success && res.models && res.models.length > 0) {
         modelsList = res.models;
         cachedModelsMap[aiProvider] = res.models;
@@ -302,6 +322,7 @@
     if (aiProvider !== 'none') {
       apiKeysMap[aiProvider] = aiApiKey;
     }
+    if (!isLoaded) return;
     triggerSave();
     if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
     fetchDebounceTimer = setTimeout(() => {
@@ -312,6 +333,7 @@
   }
 
   async function saveSettings() {
+    if (!isLoaded) return;
     try {
       if (aiProvider !== 'none') {
         apiKeysMap[aiProvider] = aiApiKey;
@@ -323,9 +345,11 @@
         apiKeysMap,
         cachedModelsMap,
         customEndpoint: aiCustomEndpoint,
+        customHeaders: aiCustomHeaders,
         autoSummarize,
         autoTags,
         autoFolder,
+        autoOnBrowserBookmark,
         concurrency: aiConcurrency
       });
       showToast(i18n.t('aiSettings.saved'), 'success');
@@ -335,6 +359,7 @@
   }
 
   function triggerSave() {
+    if (!isLoaded) return;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(saveSettings, 400);
   }
@@ -350,12 +375,29 @@
         <h3 class="section-title">{i18n.t('aiSettings.title')}</h3>
       </div>
     </div>
+    {#if isLoading}
+      <div class="section-loading-indicator">
+        <Spinner size={14} variant="default" />
+        <span>{i18n.t('settings.loadingSettings')}</span>
+      </div>
+    {/if}
   </div>
+
+  {#if loadError}
+    <div class="section-error-banner">
+      <Icon name="alert-triangle" size={16} />
+      <span>{i18n.t('settings.loadFailed')}</span>
+      <button type="button" class="btn-retry-sm" on:click={loadAiSettings}>
+        <Icon name="refresh-cw" size={12} />
+        <span>{i18n.t('settings.retry')}</span>
+      </button>
+    </div>
+  {/if}
 
   <div class="settings-card">
     <div class="form-group">
       <label for="ai-provider">{i18n.t('aiSettings.providerLabel')}</label>
-      <select id="ai-provider" class="form-select" bind:value={aiProvider} on:change={handleProviderChange}>
+      <select id="ai-provider" class="form-select" bind:value={aiProvider} on:change={handleProviderChange} disabled={!isLoaded}>
         <option value="none">{i18n.t('aiSettings.providerNone')}</option>
         {#each providers as p}
           <option value={p.id}>{getProviderDisplayName(p)}</option>
@@ -364,38 +406,6 @@
     </div>
 
     {#if aiProvider !== 'none'}
-      {#if !isLocalOrCustom}
-        <div class="form-group">
-          <label for="api-key">{i18n.t('aiSettings.apiKeyLabel')}</label>
-          <div class="input-with-action">
-            <input
-              type="password"
-              id="api-key"
-              class="form-input"
-              bind:value={aiApiKey}
-              on:input={handleKeyOrEndpointInput}
-              placeholder={i18n.t('aiSettings.apiKeyPlaceholder', { provider: getProviderDisplayName(selectedProviderDef) })}
-            />
-            <button
-              type="button"
-              class="btn-icon"
-              on:click={() => autoFetchModels(false)}
-              disabled={!isApiKeyValid || isFetchingModels}
-              title={i18n.t('aiSettings.fetchModelsTooltip')}
-            >
-              {#if isFetchingModels}
-                <Spinner size={14} variant="inline" />
-              {:else}
-                <Icon name="refresh-cw" size={14} />
-              {/if}
-            </button>
-          </div>
-          {#if fetchErrorMessage}
-            <span class="form-error">{fetchErrorMessage}</span>
-          {/if}
-        </div>
-      {/if}
-
       {#if hasEndpointField}
         <div class="form-group">
           <label for="ai-endpoint">{i18n.t('aiSettings.endpointLabel')}</label>
@@ -407,7 +417,43 @@
             on:input={handleKeyOrEndpointInput}
             placeholder={selectedProviderDef?.defaultEndpoint || DEFAULT_ENDPOINTS[aiProvider] || 'http://localhost:11434/v1'}
           />
-          {#if isLocalOrCustom && fetchErrorMessage}
+          {#if selectedProviderDef?.isLocal && fetchErrorMessage}
+            <span class="form-error">{fetchErrorMessage}</span>
+          {/if}
+        </div>
+      {/if}
+
+      {#if aiProvider === 'custom'}
+        <div class="form-group">
+          <label for="ai-custom-headers">{i18n.t('aiSettings.customHeadersLabel')}</label>
+          <textarea
+            id="ai-custom-headers"
+            class="form-textarea font-mono"
+            rows="3"
+            bind:value={aiCustomHeaders}
+            on:input={handleKeyOrEndpointInput}
+            placeholder={i18n.t('aiSettings.customHeadersPlaceholder')}
+          ></textarea>
+          <span class="form-hint">{i18n.t('aiSettings.customHeadersHint')}</span>
+        </div>
+      {/if}
+
+      {#if !selectedProviderDef?.isLocal}
+        <div class="form-group">
+          <label for="api-key">
+            {aiProvider === 'custom' ? i18n.t('aiSettings.apiKeyOptionalLabel') : i18n.t('aiSettings.apiKeyLabel')}
+          </label>
+          <input
+            type="password"
+            id="api-key"
+            class="form-input"
+            bind:value={aiApiKey}
+            on:input={handleKeyOrEndpointInput}
+            placeholder={aiProvider === 'custom'
+              ? i18n.t('aiSettings.apiKeyOptionalPlaceholder')
+              : i18n.t('aiSettings.apiKeyPlaceholder', { provider: getProviderDisplayName(selectedProviderDef) })}
+          />
+          {#if fetchErrorMessage}
             <span class="form-error">{fetchErrorMessage}</span>
           {/if}
         </div>
@@ -529,6 +575,16 @@
           <span class="setting-description">{i18n.t('aiSettings.autoFolderDesc')}</span>
         </div>
         <ToggleSwitch bind:checked={autoFolder} on:change={triggerSave} />
+      </div>
+
+      <div class="setting-divider"></div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-title">{i18n.t('aiSettings.autoOnBrowserBookmarkTitle')}</span>
+          <span class="setting-description">{i18n.t('aiSettings.autoOnBrowserBookmarkDesc')}</span>
+        </div>
+        <ToggleSwitch bind:checked={autoOnBrowserBookmark} on:change={triggerSave} />
       </div>
 
       <div class="setting-divider"></div>
@@ -680,16 +736,6 @@
     line-height: 1.3;
   }
 
-  .input-with-action {
-    display: flex;
-    align-items: stretch;
-    gap: 0.5rem;
-    width: 100%;
-  }
-
-  .input-with-action .form-input {
-    flex-grow: 1;
-  }
 
   .btn-icon {
     display: inline-flex;
@@ -909,5 +955,46 @@
   .stepper-input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
+  }
+
+  .section-loading-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+
+  .section-error-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--color-danger);
+    border-radius: var(--radius-md);
+    color: var(--color-danger);
+    font-size: 0.8125rem;
+  }
+
+  .btn-retry-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .btn-retry-sm:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
   }
 </style>

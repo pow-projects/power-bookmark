@@ -1,5 +1,7 @@
 import { ModelDefinition, getModelList, getProvider, DEFAULT_ENDPOINTS } from './provider-registry';
 import { isLocalEndpoint } from './llama-safety';
+import { getOpenCodeSessionId } from './opencode-session';
+import { parseCustomHeaders } from './custom-headers';
 
 export function validateApiKeyFormat(provider: string, apiKey: string, customEndpoint?: string): boolean {
   if (provider === 'none') return true;
@@ -29,10 +31,11 @@ export function validateApiKeyFormat(provider: string, apiKey: string, customEnd
 export async function fetchAvailableModels(
   provider: string,
   apiKey: string,
-  customEndpoint?: string
+  customEndpoint?: string,
+  customHeaders?: Record<string, string> | string
 ): Promise<ModelDefinition[]> {
   try {
-    const { success, models } = await fetchAvailableModelsWithValidation(provider, apiKey, customEndpoint);
+    const { success, models } = await fetchAvailableModelsWithValidation(provider, apiKey, customEndpoint, customHeaders);
     return models;
   } catch (error) {
     console.error(`Failed to fetch models for ${provider}:`, error);
@@ -43,7 +46,8 @@ export async function fetchAvailableModels(
 export async function fetchAvailableModelsWithValidation(
   provider: string,
   apiKey: string,
-  customEndpoint?: string
+  customEndpoint?: string,
+  customHeaders?: Record<string, string> | string
 ): Promise<{ success: boolean; models: ModelDefinition[]; error?: string }> {
   if (!validateApiKeyFormat(provider, apiKey, customEndpoint)) {
     return { success: false, models: getModelList(provider), error: 'Invalid API key format' };
@@ -150,11 +154,18 @@ export async function fetchAvailableModelsWithValidation(
       modelsUrl = `${endpoint}/v1/models`;
     }
 
+    const parsedCustomHeaders = customHeaders ? parseCustomHeaders(customHeaders) : {};
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...parsedCustomHeaders
     };
     if (apiKey && apiKey.trim()) {
       headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+    if (provider === 'opencode' || provider === 'custom' || endpoint.includes('opencode') || endpoint.includes('console.go')) {
+      if (!headers['x-opencode-session']) {
+        headers['x-opencode-session'] = getOpenCodeSessionId();
+      }
     }
 
     let response: Response;

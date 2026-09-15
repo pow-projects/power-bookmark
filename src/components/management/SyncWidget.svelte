@@ -14,6 +14,7 @@
     if (res.success) {
       showToast(res.message || i18n.t('syncSuccess'), 'success');
       document.dispatchEvent(new CustomEvent('sync-resolved'));
+      document.dispatchEvent(new CustomEvent('bookmarks-updated'));
     } else {
       showToast(res.message || i18n.t('syncError'), 'error');
     }

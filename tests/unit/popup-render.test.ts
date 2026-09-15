@@ -224,8 +224,14 @@ describe('popup App.svelte — 제목·폴더 목록 표시 (t_493c01a2)', () =>
       { id: 1, url: 'https://example.com/page', title: 'Example Page Title', active: true }
     ]);
     (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
-    (BookmarkManager.findDuplicate as any).mockResolvedValue(undefined);
-    (BookmarkManager.createBookmark as any).mockResolvedValue({ id: 10, title: 'Example Page Title' });
+    (BookmarkManager.findDuplicate as any).mockResolvedValue({
+      id: 10,
+      syncId: 'sync-10',
+      bookmarkId: 'bm-10',
+      url: 'https://example.com/page',
+      title: 'Example Page Title',
+      folderPath: '북마크바'
+    });
     mockRuntimeSendMessage.mockResolvedValue({ ok: true });
 
     const { target } = await mountApp();

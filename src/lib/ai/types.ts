@@ -10,7 +10,7 @@ import { detectBrowserLanguage } from './language-detector';
 /**
  * Default AI Provider ID list and dynamic Provider ID type
  */
-export type KnownAiProviderId = 'openai' | 'gemini' | 'anthropic' | 'custom' | 'none';
+export type KnownAiProviderId = 'openai' | 'gemini' | 'anthropic' | 'opencode' | 'custom' | 'none';
 export type AiProviderId = KnownAiProviderId | (string & {});
 
 /**
@@ -45,6 +45,7 @@ export interface AiSettings {
   apiKeysMap?: Record<string, string>;
   cachedModelsMap?: Record<string, { id: string; name: string }[]>;
   customEndpoint?: string;
+  customHeaders?: string | Record<string, string>;
   /**
    * @deprecated Unified into 'model' property. Maintained for backward compatibility.
    */
@@ -53,6 +54,7 @@ export interface AiSettings {
   autoCategorize?: boolean;
   autoTags?: boolean;
   autoFolder?: boolean;
+  autoOnBrowserBookmark?: boolean;
   temperature?: number;
   maxTokens?: number;
   organizationId?: string;
@@ -98,11 +100,13 @@ export const AI_SETTINGS_KEYS = {
   API_KEYS_MAP: 'ai_api_keys_map',
   CACHED_MODELS_MAP: 'ai_cached_models_map',
   CUSTOM_ENDPOINT: 'ai_custom_endpoint',
+  CUSTOM_HEADERS: 'ai_custom_headers',
   CUSTOM_MODEL: 'ai_custom_model',
   AUTO_SUMMARIZE: 'ai_auto_summarize',
   AUTO_CATEGORIZE: 'ai_auto_categorize',
   AUTO_TAGS: 'ai_auto_tags',
   AUTO_FOLDER: 'ai_auto_folder',
+  AUTO_ON_BROWSER_BOOKMARK: 'ai_auto_on_browser_bookmark',
   CONCURRENCY: 'ai_concurrency'
 } as const;
 

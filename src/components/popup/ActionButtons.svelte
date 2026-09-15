@@ -13,7 +13,7 @@
   export let hasArchive = false;
   export let isArchiving = false;
   export let isDeleting = false;
-  export let successAction: 'archive' | 'delete' | null = null;
+  export let successAction: 'archive' | 'delete' | 'save' | null = null;
 
   const dispatch = createEventDispatcher();
 
@@ -28,7 +28,7 @@
     disabled={isPrimaryBusy}
     on:click={() => hasArchive ? dispatch('viewArchive') : dispatch('archive')}
   >
-    {#if successAction === 'archive'}
+    {#if successAction === 'archive' || successAction === 'save'}
       <Icon name="check" size={16} />
       <span>{i18n.t('popup.saved')}</span>
     {:else if hasArchive}

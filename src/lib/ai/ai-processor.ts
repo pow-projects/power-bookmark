@@ -16,27 +16,8 @@ export interface ProcessOutcome {
   crossRootReview?: CrossRootReviewData; // For batch list collection in categorize (bulk)
 }
 
-/**
- * Update notification for management page (BookmarkList) storage.onChanged listener (shared).
- * - Success: ai_analysis_last_update (triggers card re-query)
- * - Failure: ai_analysis_error (informs user of error via toast)
- * Harmlessly ignored in test/Node environments without browser global.
- */
-export async function notifyManagementPage(info: { ok: boolean; bookmarkId?: number; error?: string }): Promise<void> {
-  try {
-    if (typeof browser !== 'undefined' && browser.storage?.local) {
-      if (info.ok) {
-        await browser.storage.local.set({ 'ai_analysis_last_update': Date.now() });
-      } else {
-        await browser.storage.local.set({
-          'ai_analysis_error': { bookmarkId: info.bookmarkId, error: info.error, at: Date.now() }
-        });
-      }
-    }
-  } catch (e) {
-    console.warn('Failed to notify management page of AI analysis update:', e);
-  }
-}
+import { notifyManagementPage } from './ai-notifier';
+export { notifyManagementPage };
 
 /**
  * Single bookmark AI processing — invoked by drain loop of unified queue (ai-queue).
@@ -57,8 +38,11 @@ export async function processAiJob(job: AiJob, signal: AbortSignal): Promise<Pro
     return { ok: true }; // Skip deleted bookmark
   }
 
-  // Immediately show in-progress card spinner
-  await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'running' });
+  // Immediately show in-progress card spinner (preserve attempts count if retrying)
+  await BookmarkManager.updateBookmark(bookmarkId, {
+    aiStatus: 'running',
+    aiAttempts: job.attempts > 0 ? job.attempts : undefined
+  });
   await notifyManagementPage({ ok: true });
 
   try {
@@ -87,7 +71,7 @@ export async function processAiJob(job: AiJob, signal: AbortSignal): Promise<Pro
       return { ok: false, aborted: true };
     }
 
-    await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'done' });
+    await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'done', aiAttempts: undefined, aiError: undefined });
     await notifyManagementPage({ ok: true });
     return {
       ok: true,
@@ -99,7 +83,7 @@ export async function processAiJob(job: AiJob, signal: AbortSignal): Promise<Pro
     if (signal.aborted || err?.name === 'AbortError' || isBookmarkDeleted) {
       // User cancellation or bookmark deleted: exit without error badge/toast
       if (!isBookmarkDeleted) {
-        await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'none' });
+        await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'none', aiAttempts: undefined, aiError: undefined });
         await notifyManagementPage({ ok: true });
       }
       return { ok: false, aborted: true };
@@ -108,7 +92,11 @@ export async function processAiJob(job: AiJob, signal: AbortSignal): Promise<Pro
     // Permanent error (token soup, etc.) has retryable=false — pass so queue immediately finalizes error without exhausting attempts
     const retryable = !isPermanentAiError(err);
     // Failure: reflect error state (bookmark itself maintains saved state)
-    await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'error' });
+    await BookmarkManager.updateBookmark(bookmarkId, {
+      aiStatus: 'error',
+      aiAttempts: job.attempts > 0 ? job.attempts : undefined,
+      aiError: errMsg
+    });
     await notifyManagementPage({ ok: false, bookmarkId, error: errMsg });
     return { ok: false, error: errMsg, retryable };
   }

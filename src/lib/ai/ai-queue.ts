@@ -1,6 +1,7 @@
 import type { AiJob, AiJobKind } from './queue-types';
 import { MAX_AI_RETRIES, retryBackoffMs } from './queue-config';
 import { processAiJob, type ProcessOutcome } from './ai-processor';
+import { notifyManagementPage } from './ai-notifier';
 import { setTaskIndicator } from '../bookmarks/badge-manager';
 import { BookmarkManager } from '../bookmarks/bookmark-manager';
 import { getAiSettings, isAiConfigured } from './ai-summarizer';
@@ -234,6 +235,14 @@ export async function enqueueAiJob(input: EnqueueInput): Promise<EnqueueResult> 
     createdAt: Date.now()
   };
   await db.aiJobs.add(job);
+  // Reset any prior failure attempts and error on the bookmark
+  try {
+    await BookmarkManager.updateBookmark(input.bookmarkId, {
+      aiStatus: 'pending',
+      aiAttempts: undefined,
+      aiError: undefined
+    });
+  } catch { /* ignore */ }
   await claimActive(job.id);
   void drainQueue();
   return { ok: true, jobId: job.id };
@@ -287,6 +296,14 @@ export async function cancelBookmarkAi(bookmarkId: number): Promise<void> {
     await db.aiJobs.put(job);
     await releaseActive(job.id);
   }
+  try {
+    await BookmarkManager.updateBookmark(bookmarkId, {
+      aiStatus: 'none',
+      aiAttempts: undefined,
+      aiError: undefined
+    });
+    await notifyManagementPage({ ok: true });
+  } catch { /* ignore */ }
 }
 
 /**
@@ -306,6 +323,13 @@ export async function cancelAllAi(): Promise<void> {
     job.finishedAt = Date.now();
     await db.aiJobs.put(job);
     await releaseActive(job.id);
+    try {
+      await BookmarkManager.updateBookmark(job.bookmarkId, {
+        aiStatus: 'none',
+        aiAttempts: undefined,
+        aiError: undefined
+      });
+    } catch { /* ignore */ }
   }
   runningJobIds.clear();
   batchProgress.clear();
@@ -316,15 +340,32 @@ export async function cancelAllAi(): Promise<void> {
     resumeTimer = null;
   }
   await clearBulkProgressStorage();
+  await notifyManagementPage({ ok: true });
 }
 
 async function finalizeJob(job: AiJob, outcome: ProcessOutcome): Promise<void> {
   if (outcome.aborted) {
     job.status = 'cancelled';
     job.finishedAt = Date.now();
+    try {
+      await BookmarkManager.updateBookmark(job.bookmarkId, {
+        aiStatus: 'none',
+        aiAttempts: undefined,
+        aiError: undefined
+      });
+      await notifyManagementPage({ ok: true });
+    } catch { /* ignore */ }
   } else if (outcome.ok) {
     job.status = 'done';
     job.finishedAt = Date.now();
+    try {
+      await BookmarkManager.updateBookmark(job.bookmarkId, {
+        aiStatus: 'done',
+        aiAttempts: undefined,
+        aiError: undefined
+      });
+      await notifyManagementPage({ ok: true });
+    } catch { /* ignore */ }
     if (outcome.crossRootReview && job.batchId) {
       const list = batchCrossRoot.get(job.batchId) || [];
       // Saved item must include bookmarkId (DB id, number) so BookmarkList.svelte can match DB record and display
@@ -332,11 +373,30 @@ async function finalizeJob(job: AiJob, outcome: ProcessOutcome): Promise<void> {
       batchCrossRoot.set(job.batchId, list);
     }
   } else {
-    applyRetryOrFail(job, outcome.error || i18n.t('common.unknownError'), outcome.retryable !== false);
-    if (job.status === 'queued') {
-      // Retry transition does not increment finish count (defect #2 fix: prevent double count)
+    const nextStatus = applyRetryOrFail(job, outcome.error || i18n.t('common.unknownError'), outcome.retryable !== false);
+    if (nextStatus === 'queued') {
+      // Retry transition: failed this attempt, now queued for next retry (e.g. 1/3, 2/3)
+      try {
+        await BookmarkManager.updateBookmark(job.bookmarkId, {
+          aiStatus: 'running',
+          aiAttempts: job.attempts,
+          aiError: job.error
+        });
+      } catch { /* ignore */ }
+      // Trigger card/row UI reload so attempt count (1/3) is reflected
+      await notifyManagementPage({ ok: true });
       await db.aiJobs.put(job);
       return;
+    } else {
+      // Final error (max retries exhausted or non-retryable permanent error)
+      try {
+        await BookmarkManager.updateBookmark(job.bookmarkId, {
+          aiStatus: 'error',
+          aiAttempts: job.attempts || 1,
+          aiError: job.error
+        });
+      } catch { /* ignore */ }
+      await notifyManagementPage({ ok: false, bookmarkId: job.bookmarkId, error: job.error });
     }
   }
   await db.aiJobs.put(job);

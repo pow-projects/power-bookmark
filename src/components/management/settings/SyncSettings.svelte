@@ -40,6 +40,9 @@
   let syncArchiveToCloud = true;
   let syncInterval: number = 5;
   let isProcessing = false;
+  let isLoaded = false;
+  let isLoading = true;
+  let loadError: string | null = null;
 
   // Track last attempted values (prevents duplicate and infinite retry popups)
   let lastAttemptedGdrive = '';
@@ -88,6 +91,8 @@
   });
 
   async function loadSettings() {
+    isLoading = true;
+    loadError = null;
     try {
       if (typeof db !== 'undefined' && db.settings) {
         provider = (await db.settings.get('sync_provider'))?.value || 'none';
@@ -126,12 +131,17 @@
         // Load conflict logs
         conflictLogs = (await db.settings.get('sync_conflict_logs'))?.value || [];
       }
-    } catch (e) {
-      // ignore
+      isLoaded = true;
+    } catch (e: any) {
+      console.error('Failed to load sync settings:', e);
+      loadError = e?.message || 'Failed to load sync settings';
+    } finally {
+      isLoading = false;
     }
   }
 
   async function handleIntervalChange() {
+    if (!isLoaded) return;
     const minutes = Number(syncInterval);
     syncInterval = minutes;
     try {
@@ -148,6 +158,7 @@
   }
 
   async function handleProviderChange() {
+    if (!isLoaded) return;
     await setSyncProvider(provider);
     await loadSettings();
     SyncEngine.sync().catch((e) => console.error('Sync after connect failed:', e));
@@ -412,13 +423,30 @@
         <h3 class="section-title">{i18n.t('syncSettings.title')}</h3>
       </div>
     </div>
+    {#if isLoading}
+      <div class="section-loading-indicator">
+        <Spinner size={14} variant="default" />
+        <span>{i18n.t('settings.loadingSettings')}</span>
+      </div>
+    {/if}
   </div>
+
+  {#if loadError}
+    <div class="section-error-banner">
+      <Icon name="alert-triangle" size={16} />
+      <span>{i18n.t('settings.loadFailed')}</span>
+      <button type="button" class="btn-retry-sm" on:click={loadSettings}>
+        <Icon name="refresh-cw" size={12} />
+        <span>{i18n.t('settings.retry')}</span>
+      </button>
+    </div>
+  {/if}
 
   <!-- Card 1: Provider settings and connection status -->
   <div class="settings-card">
     <div class="form-group">
       <label for="sync-provider">{i18n.t('syncSettings.providerLabel')}</label>
-      <select id="sync-provider" class="form-select" bind:value={provider} on:change={handleProviderChange}>
+      <select id="sync-provider" class="form-select" bind:value={provider} on:change={handleProviderChange} disabled={!isLoaded}>
         <option value="none">{i18n.t('syncSettings.providerNone')}</option>
         <option value="google-drive">{i18n.t('syncSettings.providerGoogleDrive')}</option>
         <option value="onedrive">{i18n.t('syncSettings.providerOneDrive')}</option>
@@ -761,5 +789,46 @@
     font-size: 0.8125rem;
     padding: 0.375rem 0.75rem;
     white-space: nowrap;
+  }
+
+  .section-loading-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+
+  .section-error-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--color-danger);
+    border-radius: var(--radius-md);
+    color: var(--color-danger);
+    font-size: 0.8125rem;
+  }
+
+  .btn-retry-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .btn-retry-sm:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
   }
 </style>

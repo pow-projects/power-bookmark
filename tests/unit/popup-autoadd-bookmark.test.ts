@@ -116,7 +116,7 @@ function stubMatchMedia() {
   }));
 }
 
-describe('Popup 확장 버튼 클릭 시 즉시 북마크 생성 (autoAddBookmark 경로)', () => {
+describe('Popup 확장 버튼 클릭 시 즉시 생성하지 않고 [북마크 저장] 버튼으로 북마크 생성', () => {
   let target: HTMLElement;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -136,50 +136,122 @@ describe('Popup 확장 버튼 클릭 시 즉시 북마크 생성 (autoAddBookmar
   });
 
   async function flushOnMount() {
-    // Complete Promise.all + chained await inside onMount in real-time
     await new Promise((r) => setTimeout(r, 100));
     await tick();
   }
 
-  it('onMount 후 autoAddBookmark가 실행되어 createBookmark가 호출된다 (즉시 생성)', async () => {
+  it('onMount 시점에 createBookmark가 즉시 호출되지 않고, [북마크 저장], [아카이브 저장] 및 [관리 페이지] 버튼이 표시된다', async () => {
     new App({ target });
     await flushOnMount();
 
+    // Must NOT call createBookmark automatically on mount
+    expect(mocks.createBookmark).not.toHaveBeenCalled();
+
+    // Save button must be visible
+    const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
+    expect(saveBtn).not.toBeNull();
+    expect(saveBtn!.textContent).toContain('북마크 저장');
+
+    // Archive button must be visible
+    const archiveBtn = target.querySelector('.btn-archive-bookmark') as HTMLButtonElement | null;
+    expect(archiveBtn).not.toBeNull();
+    expect(archiveBtn!.textContent).toContain('아카이브 저장');
+
+    // Management page button must be visible
+    const manageBtn = target.querySelector('.btn-manage') as HTMLButtonElement | null;
+    expect(manageBtn).not.toBeNull();
+    expect(manageBtn!.textContent).toContain('관리 페이지');
+
+    // onMount must not abort with errors
+    expect(consoleErrorSpy.mock.calls.some((c) => String(c[0]).includes('Popup onMount error'))).toBe(false);
+  });
+
+  it('[북마크 저장] 버튼 클릭 시 createBookmark가 호출되고 저장 성공 피드백이 표시된다', async () => {
+    new App({ target });
+    await flushOnMount();
+
+    const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
+    expect(saveBtn).not.toBeNull();
+
+    await saveBtn!.click();
+    await flushOnMount();
+
     expect(mocks.createBookmark).toHaveBeenCalledTimes(1);
-    // createBookmark(url, title, parentId, description) — in v2 new registration,
-    // description is empty (''), so doAddBookmark passes 'description || undefined'.
-    // (Matches BookmarkManager.createBookmark default description='')
     expect(mocks.createBookmark).toHaveBeenCalledWith(
       'https://example.com',
       'Example Domain',
       '1',
       undefined
     );
-    // onMount must not abort with TDZ ReferenceError
-    expect(consoleErrorSpy.mock.calls.some((c) => String(c[0]).includes('Popup onMount error'))).toBe(false);
+
+    // Shows saved stamp
+    expect(target.textContent).toContain('저장 완료');
   });
 
-  it('즉시 생성 성공 시 수정 모드로 전환되어 삭제 버튼이 표시된다', async () => {
-    new App({ target });
-    await flushOnMount();
-
-    // [Add Bookmark] button (btn-primary) in new add mode disappears,
-    // and edit-mode dedicated delete button (btn-danger) appears
-    const dangerBtn = target.querySelector('.btn-danger');
-    expect(dangerBtn).not.toBeNull();
-    expect(target.textContent).toContain('삭제');
-  });
-
-  it('즉시 생성 실패 시 오류 배너로 사용자에게 피드백이 표시된다', async () => {
+  it('[북마크 저장] 실패 시 오류 배너로 사용자에게 피드백이 표시된다', async () => {
     mocks.createBookmark.mockRejectedValueOnce(new Error('create failed'));
     new App({ target });
     await flushOnMount();
 
-    // Failure feedback: failure message must be displayed in error banner (.error-banner)
+    const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
+    expect(saveBtn).not.toBeNull();
+
+    await saveBtn!.click();
+    await flushOnMount();
+
+    // Failure feedback in error banner
     const errorBanner = target.querySelector('.error-banner');
     expect(errorBanner).not.toBeNull();
     expect(errorBanner!.textContent).toContain('북마크 생성 실패');
-    // If failed, should not transition to edit mode and delete button must not exist
-    expect(target.querySelector('.btn-danger')).toBeNull();
+  });
+
+  it('[아카이브 저장] 버튼 클릭 시 북마크가 생성되고 ARCHIVE_CAPTURE_BOOKMARK 메시지가 전송된다', async () => {
+    new App({ target });
+    await flushOnMount();
+
+    const archiveBtn = target.querySelector('.btn-archive-bookmark') as HTMLButtonElement | null;
+    expect(archiveBtn).not.toBeNull();
+
+    await archiveBtn!.click();
+    await flushOnMount();
+
+    expect(mocks.createBookmark).toHaveBeenCalledTimes(1);
+    expect(mocks.createBookmark).toHaveBeenCalledWith(
+      'https://example.com',
+      'Example Domain',
+      '1',
+      undefined
+    );
+
+    // Verify ARCHIVE_CAPTURE_BOOKMARK message was dispatched to background
+    const sendMessageCalls = (browser.runtime.sendMessage as any).mock.calls;
+    const archiveCall = sendMessageCalls.find((call: any[]) => call[0]?.type === 'ARCHIVE_CAPTURE_BOOKMARK');
+    expect(archiveCall).toBeDefined();
+    expect(archiveCall[0].bookmarkId).toBe(1);
+
+    // Shows saved stamp
+    expect(target.textContent).toContain('저장 완료');
+  });
+
+  it('[아카이브 저장] 실패 시 오류 배너로 아카이브 저장 실패 피드백이 표시된다', async () => {
+    (browser.runtime.sendMessage as any).mockImplementation(async (msg: any) => {
+      if (msg.type === 'ARCHIVE_CAPTURE_BOOKMARK') {
+        return { success: false, error: 'archive failed' };
+      }
+      return undefined;
+    });
+
+    new App({ target });
+    await flushOnMount();
+
+    const archiveBtn = target.querySelector('.btn-archive-bookmark') as HTMLButtonElement | null;
+    expect(archiveBtn).not.toBeNull();
+
+    await archiveBtn!.click();
+    await flushOnMount();
+
+    const errorBanner = target.querySelector('.error-banner');
+    expect(errorBanner).not.toBeNull();
+    expect(errorBanner!.textContent).toContain('아카이브 저장에 실패했습니다');
   });
 });

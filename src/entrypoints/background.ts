@@ -113,19 +113,60 @@ export default defineBackground(() => {
   // Refresh active tab badge on initial startup
   refreshActiveTabBadge();
 
+  // Setup context menu (toolbar icon right-click)
+  const setupContextMenu = () => {
+    if (!browser.contextMenus?.create) return;
+    try {
+      // Firefox MV2 uses 'browser_action', whereas MV3 (Chrome and Firefox MV3) uses 'action'
+      const actionContext = import.meta.env.MANIFEST_VERSION === 2 ? 'browser_action' : 'action';
+      const createItem = () => {
+        try {
+          browser.contextMenus.create(
+            {
+              id: 'open-management',
+              title: i18n.t('openManagement'),
+              contexts: [actionContext as any]
+            },
+            () => {
+              if (browser.runtime.lastError) {
+                // Silently ignore duplicate id or race
+              }
+            }
+          );
+        } catch {
+          // Silently ignore duplicate id error if thrown synchronously
+        }
+      };
+
+      if (typeof browser.contextMenus.removeAll === 'function') {
+        let called = false;
+        const onRemoved = () => {
+          if (called) return;
+          called = true;
+          createItem();
+        };
+
+        const res: unknown = (browser.contextMenus.removeAll as any)(onRemoved);
+        if (res != null && typeof (res as Record<string, any>).then === 'function') {
+          (res as Promise<void>).then(onRemoved).catch(onRemoved);
+        }
+      } else {
+        createItem();
+      }
+    } catch (e) {
+      console.error('Failed to setup context menu:', e);
+    }
+  };
+
+  // Ensure context menu is created on service worker wake-up / browser startup / installation
+  setupContextMenu();
+  browser.runtime.onStartup?.addListener(() => {
+    setupContextMenu();
+  });
+
   // 6. Run one-time full sync on install or update
   browser.runtime.onInstalled.addListener(async (details) => {
-    try {
-      // Firefox uses 'browser_action', Chrome MV3 uses 'action' context enum (different values)
-      const actionContext = import.meta.env.FIREFOX ? 'browser_action' : 'action';
-      browser.contextMenus.create({
-        id: 'open-management',
-        title: i18n.t('openManagement'),
-        contexts: [actionContext]
-      });
-    } catch (e) {
-      console.error('Failed to create context menu:', e);
-    }
+    setupContextMenu();
     console.log('Extension installed/updated. Running initial sync...', details.reason);
     try {
       const archiveCompressSetting = await db.settings.get('archive_compress');
@@ -142,11 +183,13 @@ export default defineBackground(() => {
   });
 
   // Context menu (toolbar icon right-click) -> Open management page
-  browser.contextMenus.onClicked.addListener((info) => {
-    if (info.menuItemId === 'open-management') {
-      openManagementPage();
-    }
-  });
+  if (browser.contextMenus?.onClicked?.addListener) {
+    browser.contextMenus.onClicked.addListener((info) => {
+      if (info.menuItemId === 'open-management') {
+        openManagementPage();
+      }
+    });
+  }
 
   // 7. cross-origin iframe HTML fetch relay (for single-file style archiving)
   // @ts-ignore
@@ -277,6 +320,12 @@ export default defineBackground(() => {
 
     if (message?.type === 'SET_SYNC_MUTED') {
       BookmarkManager.setSyncMuted(!!message.muted);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (message?.type === 'MARK_EXTENSION_BOOKMARK' && message.bookmarkId) {
+      BookmarkManager.extensionCreatedBookmarkIds.add(String(message.bookmarkId));
       sendResponse({ ok: true });
       return false;
     }

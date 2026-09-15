@@ -1,5 +1,5 @@
 import { defineConfig } from 'wxt';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
@@ -79,6 +79,9 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-svelte', '@wxt-dev/i18n/module'],
   vite: () => ({
+    esbuild: {
+      charset: 'ascii',
+    },
     build: {
       chunkSizeWarningLimit: 1200,
     },
@@ -93,11 +96,26 @@ export default defineConfig({
             };
           }
         },
-        renderChunk(code) {
-          return {
-            code: code.replace(/Function\((`|"|')\1\)/g, '(function(){return false;})()'),
-            map: null,
-          };
+        closeBundle() {
+          const outDirs = ['.output/chrome-mv3', '.output/firefox-mv2', '.output/firefox-mv3'];
+          for (const outDir of outDirs) {
+            if (!existsSync(outDir)) continue;
+            try {
+              const entries = readdirSync(outDir, { withFileTypes: true, recursive: true });
+              for (const entry of entries) {
+                if (entry.isFile() && (entry.name.endsWith('.js') || entry.name.endsWith('.json'))) {
+                  const parent = (entry as any).parentPath || (entry as any).path || outDir;
+                  const fullPath = join(parent, entry.name);
+                  try {
+                    const text = readFileSync(fullPath, 'utf8');
+                    if (text.includes('\uffff')) {
+                      writeFileSync(fullPath, text.replace(/\uffff/g, '\\uFFFF'), 'utf8');
+                    }
+                  } catch {}
+                }
+              }
+            } catch {}
+          }
         },
       },
     ],
@@ -137,7 +155,6 @@ export default defineConfig({
       'storage',
       'identity',
       'activeTab',
-      'scripting',
       'alarms',
       'downloads'
     ];

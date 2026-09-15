@@ -9,6 +9,7 @@
   import { bulkScanController } from '../../../lib/bulk-scan-controller';
   import { initAiProgressStore } from '../../../lib/ai/ai-progress-store';
   import { requestBulkAiCategorize, requestBulkAiSummarize, retrySingleAi, cancelSingleAi, cancelBulkAi } from '../../../lib/ai/ai-batch-controller';
+  import { formatApproximateAiError } from '../../../lib/ai/ai-error-formatter';
   import { openArchiveBookmark, saveArchiveBookmark, deleteArchiveRecord } from './archive-action-handler';
   import { getArchiveCaptureState, STALE_MS } from '../../../lib/archive/archive-capture-state';
   import { isUncategorizedBookmark } from '../../../lib/bookmarks/folder-utils';
@@ -22,11 +23,16 @@
   import BookmarkRow from './BookmarkRow.svelte';
   import BookmarkTableHeader from './BookmarkTableHeader.svelte';
   import EmptyState from '../../shared/EmptyState.svelte';
+  import Spinner from '../../shared/Spinner.svelte';
+  import Icon from '../../shared/Icon.svelte';
   import FolderTree from '../FolderTree.svelte';
   import CrossRootSection from './CrossRootSection.svelte';
   import BookmarkModals from './BookmarkModals.svelte';
 
   export let folders: FolderNode[] = [];
+
+  let isInitialLoading = true;
+  let loadError: string | null = null;
 
   let bookmarks: Bookmark[] = [];
   let archiveMap = new Map<number, ArchivedPage>();
@@ -84,6 +90,7 @@
   let aiUpdateDebounceTimer: any = null;
   let lastArchiveErrorToast = 0;
   let archiveUpdateDebounceTimer: any = null;
+  let bookmarkReloadDebounceTimer: any = null;
 
   const scanState = bulkScanController.store;
 
@@ -257,8 +264,12 @@
           }
         }
       }
-    } catch (e) {
+      loadError = null;
+    } catch (e: any) {
       console.error('Failed to load bookmarks:', e);
+      loadError = e?.message || 'Failed to load bookmarks';
+    } finally {
+      isInitialLoading = false;
     }
   }
 
@@ -333,12 +344,15 @@
         }, 150);
       }
       if (changes['ai_analysis_error'] && changes['ai_analysis_error'].newValue) {
+        const errPayload = changes['ai_analysis_error'].newValue;
         const now = Date.now();
         if (now - lastAiErrorToast > 2000) {
-          const detail = changes['ai_analysis_error'].newValue?.error;
-          showToast(detail ? i18n.t('ai.analysisFailedWithDetail', { detail }) : i18n.t('ai.analysisFailed'), 'error');
+          const detail = errPayload?.error;
+          const approx = detail ? formatApproximateAiError(detail) : '';
+          showToast(approx ? i18n.t('ai.analysisFailedWithDetail', { detail: approx }) : i18n.t('ai.analysisFailed'), 'error');
           lastAiErrorToast = now;
         }
+        loadBookmarks();
       }
 
       // Real-time reflection of archive progress state (checkpoint)
@@ -378,14 +392,37 @@
         }
         loadArchiveMap();
       }
+
+      // Real-time reflection of sync completion and bookmark changes
+      if (changes['sync_last_completed'] || changes['bookmarks_last_updated']) {
+        handleBookmarkUpdateEvent();
+      }
+    }
+  }
+
+  function handleBookmarkUpdateEvent() {
+    if (bookmarkReloadDebounceTimer) clearTimeout(bookmarkReloadDebounceTimer);
+    bookmarkReloadDebounceTimer = setTimeout(() => {
+      bookmarkReloadDebounceTimer = null;
+      loadBookmarks();
+    }, 100);
+  }
+
+  function handleRuntimeMessage(msg: any) {
+    if (msg?.type === 'BOOKMARKS_UPDATED' || msg?.type === 'SYNC_RESOLVED' || msg?.type === 'BOOKMARKS_SYNC_COMPLETED') {
+      handleBookmarkUpdateEvent();
     }
   }
 
   onMount(() => {
     loadBookmarks();
-    document.addEventListener('bookmarks-updated', loadBookmarks);
+    document.addEventListener('bookmarks-updated', handleBookmarkUpdateEvent);
+    document.addEventListener('sync-resolved', handleBookmarkUpdateEvent);
     if (typeof browser !== 'undefined' && browser.storage?.onChanged) {
       browser.storage.onChanged.addListener(handleStorageChanged);
+    }
+    if (typeof browser !== 'undefined' && browser.runtime?.onMessage?.addListener) {
+      browser.runtime.onMessage.addListener(handleRuntimeMessage);
     }
     cleanupAiStore = initAiProgressStore(() => { loadBookmarks(); });
 
@@ -416,9 +453,14 @@
   onDestroy(() => {
     if (aiUpdateDebounceTimer) clearTimeout(aiUpdateDebounceTimer);
     if (archiveUpdateDebounceTimer) clearTimeout(archiveUpdateDebounceTimer);
-    document.removeEventListener('bookmarks-updated', loadBookmarks);
+    if (bookmarkReloadDebounceTimer) clearTimeout(bookmarkReloadDebounceTimer);
+    document.removeEventListener('bookmarks-updated', handleBookmarkUpdateEvent);
+    document.removeEventListener('sync-resolved', handleBookmarkUpdateEvent);
     if (typeof browser !== 'undefined' && browser.storage?.onChanged) {
       browser.storage.onChanged.removeListener(handleStorageChanged);
+    }
+    if (typeof browser !== 'undefined' && browser.runtime?.onMessage?.removeListener) {
+      browser.runtime.onMessage.removeListener(handleRuntimeMessage);
     }
     if (cleanupAiStore) cleanupAiStore();
     if (treeHeightRaf !== null && typeof cancelAnimationFrame !== 'undefined') {
@@ -895,7 +937,33 @@
     on:updated={handleCrossRootUpdated}
   />
 
-  <div class="bookmarks-layout">
+  {#if isInitialLoading}
+    <div class="loading-state">
+      <Spinner size={40} variant="default" />
+      <p>{i18n.t('bookmarks.loadingBookmarks')}</p>
+    </div>
+  {:else if loadError && bookmarks.length === 0}
+    <div class="error-state">
+      <Icon name="alert-triangle" size={40} />
+      <p class="error-title">{i18n.t('bookmarks.loadFailed')}</p>
+      {#if loadError}
+        <p class="error-detail">{loadError}</p>
+      {/if}
+      <button
+        type="button"
+        class="btn-retry"
+        on:click={() => {
+          isInitialLoading = true;
+          loadError = null;
+          loadBookmarks();
+        }}
+      >
+        <Icon name="refresh-cw" size={16} />
+        <span>{i18n.t('bookmarks.retry')}</span>
+      </button>
+    </div>
+  {:else}
+    <div class="bookmarks-layout">
     {#if folders && folders.length > 0}
       <div class="folder-tree-panel" bind:this={folderTreePanelEl} style="max-height: {treeMaxHeight};">
         <FolderTree
@@ -1031,6 +1099,7 @@
       {/if}
     </div>
   </div>
+{/if}
 </div>
 
 <BookmarkModals
@@ -1096,7 +1165,55 @@
   }
   .bookmarks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
   .bookmarks-list-view { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; min-width: 0; }
-  .bookmarks-list-rows { display: flex; flex-direction: column; gap: 0.35rem; width: 100%; min-width: 0; }
+  .loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 0;
+    color: var(--text-secondary);
+    gap: 1rem;
+  }
+  .error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 0;
+    color: var(--color-danger);
+    gap: 0.75rem;
+    text-align: center;
+  }
+  .error-state .error-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .error-state .error-detail {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    max-width: 500px;
+    word-break: break-word;
+  }
+  .btn-retry {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    margin-top: 0.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+  .btn-retry:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
   @media (max-width: 768px) {
     .bookmarks-layout { grid-template-columns: 1fr; }
     .folder-tree-panel { position: static; max-height: 300px !important; }

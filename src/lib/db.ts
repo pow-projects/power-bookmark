@@ -28,6 +28,8 @@ export interface Bookmark {
   visitCount: number;
   tags?: string[];
   aiStatus?: 'none' | 'pending' | 'running' | 'done' | 'error'; // AI analysis status (for indicating background analysis progress)
+  aiAttempts?: number; // Number of failed retry attempts during AI analysis (e.g. 1, 2)
+  aiError?: string; // Last error message from AI analysis failure
   crossRootReview?: CrossRootReviewData; // Pending review data for AI cross-root folder move
 }
 

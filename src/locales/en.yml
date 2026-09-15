@@ -59,6 +59,7 @@ popup:
     foldersLoadRetry: Failed to load the folder list. Please try again in a moment.
     foldersEmpty: No folders yet. Create a new folder to organize your bookmarks.
   actions:
+    saveBookmark: Save Bookmark
     saveArchive: Save Archive
     viewArchive: View Archive
     delete: Delete
@@ -225,6 +226,9 @@ bookmarks:
   deselectAll: Deselect all
   selectedCount: "{count} selected"
   noBookmarks: No matching bookmarks found.
+  loadingBookmarks: Loading bookmarks...
+  loadFailed: Failed to load bookmarks.
+  retry: Retry
   emptyFilter: No bookmarks match the current filter.
   searchPlaceholderShort: Search...
   filterBadge:
@@ -443,6 +447,15 @@ ai:
   categoryCommunity: Community Providers
   categoryCustom: Custom API
   analysisError: AI analysis error
+  retryingAttempt: "Retrying AI analysis ({current}/{max})"
+  errorQuota: "Quota or rate limit exceeded"
+  errorAuth: "API key authentication failed"
+  errorModelNotFound: "Model not found"
+  errorTimeout: "Request timed out"
+  errorNetwork: "Server connection failed"
+  errorTokenSoup: "Response format error"
+  errorNotConfigured: "AI not configured"
+  errorServerError: "AI server error"
 
 # ── Settings ──
 settings:
@@ -453,6 +466,9 @@ settings:
     sync: Cloud Sync
     ai: AI Settings
   autoSaved: Automatically saved
+  loadingSettings: Loading settings...
+  loadFailed: Failed to load settings.
+  retry: Retry
   tabs:
     ai: AI Analysis
     archive: HTML Archive
@@ -585,8 +601,12 @@ aiSettings:
   customApiDesc: OpenAI-compatible custom REST API endpoint
   apiKeyLabel: API Key
   apiKeyPlaceholder: "Enter {provider} API Key"
-  fetchModelsTooltip: Fetch latest model list with API Key
+  apiKeyOptionalLabel: API Key (Optional)
+  apiKeyOptionalPlaceholder: "Enter if required (leave blank for llama.cpp/local servers)"
   endpointLabel: Endpoint URL
+  customHeadersLabel: Custom HTTP Headers (Optional)
+  customHeadersPlaceholder: "Header-Name: Value\nor {\"Header-Name\": \"Value\"}"
+  customHeadersHint: Enter additional authentication or routing headers, one per line.
   modelLabel: Model to Use
   modelSelectPlaceholder: Select model or enter directly
   modelCustomPlaceholder: Enter Model ID
@@ -606,6 +626,8 @@ aiSettings:
   autoTagsDesc: Automatically extracts key keywords as hashtags (#) when adding a bookmark.
   autoFolderTitle: Auto-categorize folders
   autoFolderDesc: Analyzes existing folder structure to place bookmarks into appropriate folders or create new ones when adding a bookmark.
+  autoOnBrowserBookmarkTitle: Auto-analyze browser bookmarks
+  autoOnBrowserBookmarkDesc: Automatically triggers AI analysis when bookmarking via browser shortcuts or the address bar star icon.
   concurrencyTitle: Concurrent Processing Count
   concurrencyDesc: Set how many bookmarks to analyze in parallel during AI processing.
   concurrencyTip: "Recommended: 3–5 for Local LLMs (Ollama); Paid APIs can be configured higher based on rate limits and system capacity."

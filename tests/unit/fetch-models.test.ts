@@ -234,8 +234,35 @@ describe('fetchAvailableModels', () => {
     } as any);
 
     const models = await fetchAvailableModels('custom', '');
-    expect(fetch).toHaveBeenCalledWith('http://localhost:8080/v1/models', expect.anything());
+    expect(fetch).toHaveBeenCalledWith('http://localhost:8080/v1/models', expect.objectContaining({
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'x-opencode-session': expect.any(String)
+      })
+    }));
     expect(models.length).toBe(1);
     expect(models[0].id).toBe('gemma-4-E4B-it-Q6_K');
+  });
+
+  it('fetches Custom provider models with API key and custom endpoint (e.g. OpenCode)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'opencode-model-1' }
+        ]
+      })
+    } as any);
+
+    const models = await fetchAvailableModels('custom', 'opencode-secret-token', 'https://api.opencode.ai/v1');
+    expect(fetch).toHaveBeenCalledWith('https://api.opencode.ai/v1/models', expect.objectContaining({
+      headers: expect.objectContaining({
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer opencode-secret-token',
+        'x-opencode-session': expect.any(String)
+      })
+    }));
+    expect(models.length).toBe(1);
+    expect(models[0].id).toBe('opencode-model-1');
   });
 });

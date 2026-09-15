@@ -188,6 +188,10 @@ export async function triggerManualSync(): Promise<{ success: boolean; message?:
   try {
     await SyncEngine.sync();
     await refreshSyncStatus();
+    if (typeof document !== 'undefined') {
+      document.dispatchEvent(new CustomEvent('sync-resolved'));
+      document.dispatchEvent(new CustomEvent('bookmarks-updated'));
+    }
     return { success: true, message: i18n.t('syncSuccess') };
   } catch (e: any) {
     syncStatus.update((s) => ({ ...s, isSyncing: false, error: e?.message || i18n.t('syncError') }));

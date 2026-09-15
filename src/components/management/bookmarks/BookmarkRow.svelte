@@ -6,6 +6,7 @@
   import Spinner from '../../shared/Spinner.svelte';
   import Badge from '../../shared/Badge.svelte';
   import AiTaskBadge from '../AiTaskBadge.svelte';
+  import { formatApproximateAiError } from '../../../lib/ai/ai-error-formatter';
   import { formatDate } from '../../../lib/ui/date-formatter';
   import { setBookmarkDragImage } from '../../../lib/bookmarks/drag-helper';
 
@@ -233,16 +234,17 @@
         <Spinner size={13} variant="inline" />
       </button>
     {:else if bookmark.aiStatus === 'running' || bookmark.aiStatus === 'pending'}
-      <AiTaskBadge bookmarkId={bookmark.id} on:cancel={() => { if (bookmark.id !== undefined) dispatch('cancelAi', { bookmarkId: bookmark.id }); }} />
+      <AiTaskBadge bookmarkId={bookmark.id} attempts={bookmark.aiAttempts} on:cancel={() => { if (bookmark.id !== undefined) dispatch('cancelAi', { bookmarkId: bookmark.id }); }} />
     {:else if bookmark.aiStatus === 'error'}
+      {@const approxErr = bookmark.aiError ? formatApproximateAiError(bookmark.aiError) : ''}
       <button
         type="button"
         class="ai-error-btn"
-        title={i18n.t('common.retry')}
+        title={bookmark.aiError ? `${i18n.t('ai.analysisFailed')}: ${bookmark.aiError} (${i18n.t('common.retry')})` : i18n.t('common.retry')}
         on:click|stopPropagation={() => dispatch('retryAi', { bookmark })}
       >
         <Icon name="alert-circle" size={11} />
-        <span>{i18n.t('common.retry')}</span>
+        <span>{i18n.t('common.retry')}{#if approxErr} ({approxErr}){/if}</span>
       </button>
     {:else if hasArchive}
       <Badge variant="success" size="sm">

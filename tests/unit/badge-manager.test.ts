@@ -310,6 +310,28 @@ describe('badge-manager', () => {
       expect(mockSetTitle).toHaveBeenCalledWith({ tabId: 1, title: 'PowerBookmark (아카이브 저장 중...)' });
       expect(mockSetIcon).toHaveBeenCalledWith({ tabId: 1, path: SPINNER_FRAMES[0] });
     });
+
+    it('does not block bookmark badge updates when only sync task is active', async () => {
+      stores.bookmarks = [{ url: 'https://example.com' }];
+      await setSyncingIndicator(true);
+
+      mockSetBadgeText.mockClear();
+      mockSetTitle.mockClear();
+      mockSetIcon.mockClear();
+
+      await updateActionBadge(1, 'https://example.com');
+
+      expect(mockSetTitle).toHaveBeenCalledWith({ tabId: 1, title: 'PowerBookmark (이미 저장된 북마크)' });
+      expect(mockSetIcon).toHaveBeenCalledWith({
+        tabId: 1,
+        path: {
+          '16': 'icons/icon-active-16.png',
+          '32': 'icons/icon-active-32.png',
+          '48': 'icons/icon-active-48.png',
+          '128': 'icons/icon-active-128.png',
+        },
+      });
+    });
   });
 
   describe('Task Indicator (setTaskIndicator / startTaskIndicator / endTaskIndicator)', () => {
@@ -332,13 +354,13 @@ describe('badge-manager', () => {
       expect(mockSetIcon).toHaveBeenCalledWith({ path: SPINNER_FRAMES[0] });
     });
 
-    it('sets sync title for sync task', async () => {
+    it('does not activate spinner or change toolbar icon for sync task', async () => {
       await setTaskIndicator('sync', true);
 
       expect(getActiveTaskCounts().sync).toBe(1);
-      expect(isSpinnerRunning()).toBe(true);
-      expect(mockSetTitle).toHaveBeenCalledWith({ title: 'PowerBookmark (동기화 중...)' });
-      expect(mockSetIcon).toHaveBeenCalledWith({ path: SPINNER_FRAMES[0] });
+      expect(isSpinnerRunning()).toBe(false);
+      expect(mockSetTitle).not.toHaveBeenCalled();
+      expect(mockSetIcon).not.toHaveBeenCalled();
     });
 
     it('sets capture title for capture task', async () => {
@@ -436,54 +458,29 @@ describe('badge-manager', () => {
   });
 
   describe('setSyncingIndicator compatibility', () => {
-    it('acts as setTaskIndicator("sync", true) when syncing=true', async () => {
+    it('tracks sync task count without starting toolbar spinner', async () => {
       await setSyncingIndicator(true);
 
       expect(getActiveTaskCounts().sync).toBe(1);
-      expect(mockSetBadgeText).toHaveBeenCalledWith({ text: '' });
-      expect(mockSetTitle).toHaveBeenCalledWith({ title: 'PowerBookmark (동기화 중...)' });
-      expect(mockSetIcon).toHaveBeenCalledWith({ path: SPINNER_FRAMES[0] });
+      expect(isSpinnerRunning()).toBe(false);
+      expect(mockSetBadgeText).not.toHaveBeenCalled();
+      expect(mockSetTitle).not.toHaveBeenCalled();
+      expect(mockSetIcon).not.toHaveBeenCalled();
     });
 
-    it('restores badge per active tab via updateActionBadge when syncing=false', async () => {
-      stores.bookmarks = [{ url: 'https://example.com' }];
-      mockTabsQuery.mockResolvedValue([
-        { id: 1, url: 'https://example.com' },
-        { id: 2, url: 'https://example.com' }
-      ]);
-
+    it('clears sync task count on completion without starting spinner', async () => {
       await setSyncingIndicator(true);
+      expect(getActiveTaskCounts().sync).toBe(1);
+
       await setSyncingIndicator(false);
-
       expect(getActiveTaskCounts().sync).toBe(0);
-      expect(mockTabsQuery).toHaveBeenCalledWith({});
-      expect(mockSetIcon).toHaveBeenCalledWith({
-        tabId: 1,
-        path: {
-          '16': 'icons/icon-active-16.png',
-          '32': 'icons/icon-active-32.png',
-          '48': 'icons/icon-active-48.png',
-          '128': 'icons/icon-active-128.png',
-        },
-      });
-      expect(mockSetIcon).toHaveBeenCalledWith({
-        tabId: 2,
-        path: {
-          '16': 'icons/icon-active-16.png',
-          '32': 'icons/icon-active-32.png',
-          '48': 'icons/icon-active-48.png',
-          '128': 'icons/icon-active-128.png',
-        },
-      });
+      expect(isSpinnerRunning()).toBe(false);
+      expect(mockSetIcon).not.toHaveBeenCalled();
     });
 
-    it('resolves without exception when tabs.query returns an empty array', async () => {
-      mockTabsQuery.mockResolvedValue([]);
-
-      await setSyncingIndicator(true);
+    it('resolves cleanly without exception', async () => {
+      await expect(setSyncingIndicator(true)).resolves.toBeUndefined();
       await expect(setSyncingIndicator(false)).resolves.toBeUndefined();
-      expect(mockSetBadgeText).toHaveBeenCalledWith({ text: '' });
-      expect(mockSetTitle).toHaveBeenCalledWith({ title: 'PowerBookmark' });
     });
   });
 });

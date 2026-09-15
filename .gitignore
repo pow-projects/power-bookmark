@@ -16,3 +16,4 @@ skills-lock.json
 .env
 .env.local
 .env.*.local
+.env.submit

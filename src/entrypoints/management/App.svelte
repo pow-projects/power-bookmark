@@ -61,10 +61,15 @@
     
     checkPendingConflicts();
     document.addEventListener('sync-conflicts-detected', handleConflictsDetected);
+    const handleSyncResolved = () => {
+      checkPendingConflicts();
+    };
+    document.addEventListener('sync-resolved', handleSyncResolved);
     
     return () => {
       window.removeEventListener('popstate', handlePopState);
       document.removeEventListener('sync-conflicts-detected', handleConflictsDetected);
+      document.removeEventListener('sync-resolved', handleSyncResolved);
     };
   });
 

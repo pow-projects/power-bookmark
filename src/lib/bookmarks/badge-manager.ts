@@ -97,7 +97,7 @@ export async function updateActionBadge(tabId: number, url?: string): Promise<vo
   const actionApi = getActionApi();
   if (!actionApi) return;
 
-  const totalTasks = taskCounts.archive + taskCounts.ai + taskCounts.sync + taskCounts.capture;
+  const totalTasks = taskCounts.archive + taskCounts.ai + taskCounts.capture;
   if (totalTasks > 0) {
     // When active task indicator (spinner) is in progress, set spinner icon and title without background
     const { title } = getTaskIndicatorMeta();
@@ -168,14 +168,13 @@ export async function updateActionBadge(tabId: number, url?: string): Promise<vo
 function getTaskIndicatorMeta(): { title: string; color: string } {
   const hasArchive = taskCounts.archive > 0;
   const hasAi = taskCounts.ai > 0;
-  const hasSync = taskCounts.sync > 0;
   const hasCapture = taskCounts.capture > 0;
-  const activeCount = (hasArchive ? 1 : 0) + (hasAi ? 1 : 0) + (hasSync ? 1 : 0) + (hasCapture ? 1 : 0);
+  const activeCount = (hasArchive ? 1 : 0) + (hasAi ? 1 : 0) + (hasCapture ? 1 : 0);
 
   if (activeCount > 1) {
     return {
       title: i18n.t('badge.processing'),
-      color: hasArchive || hasSync || hasCapture ? COLOR_PRIMARY : COLOR_AI,
+      color: hasArchive || hasCapture ? COLOR_PRIMARY : COLOR_AI,
     };
   }
 
@@ -197,13 +196,6 @@ function getTaskIndicatorMeta(): { title: string; color: string } {
     return {
       title: i18n.t('badge.aiAnalyzing'),
       color: COLOR_AI,
-    };
-  }
-
-  if (hasSync) {
-    return {
-      title: i18n.t('badge.syncing'),
-      color: COLOR_PRIMARY,
     };
   }
 
@@ -253,7 +245,7 @@ async function syncTaskIndicatorState(): Promise<void> {
   const actionApi = getActionApi();
   if (!actionApi) return;
 
-  const totalTasks = taskCounts.archive + taskCounts.ai + taskCounts.sync + taskCounts.capture;
+  const totalTasks = taskCounts.archive + taskCounts.ai + taskCounts.capture;
 
   if (totalTasks > 0) {
     const { title } = getTaskIndicatorMeta();
@@ -286,7 +278,7 @@ async function syncTaskIndicatorState(): Promise<void> {
       // Traverse all active tabs and restore to original state in parallel
       if (browser.tabs && browser.tabs.query) {
         const tabs = await browser.tabs.query({});
-        const activeTasksNow = taskCounts.archive + taskCounts.ai + taskCounts.sync + taskCounts.capture;
+        const activeTasksNow = taskCounts.archive + taskCounts.ai + taskCounts.capture;
         if (activeTasksNow > 0) return; // Abort if a new task started during restoration
 
         await Promise.allSettled(
@@ -304,24 +296,27 @@ async function syncTaskIndicatorState(): Promise<void> {
 }
 
 /**
- * Registers the start of a specific task (archive | ai | sync) and activates the spinner indicator.
+ * Registers the start of a specific task (archive | ai | sync | capture) and activates the spinner indicator.
+ * Note: sync is tracked but excluded from toolbar spinner animations to prevent user distraction during background sync.
  */
 export async function startTaskIndicator(taskType: TaskType): Promise<void> {
   taskCounts[taskType] = (taskCounts[taskType] || 0) + 1;
+  if (taskType === 'sync') return;
   await syncTaskIndicatorState();
 }
 
 /**
- * Registers the end of a specific task (archive | ai | sync) and restores original badge once all tasks are complete.
+ * Registers the end of a specific task (archive | ai | sync | capture) and restores original badge once all tasks are complete.
  */
 export async function endTaskIndicator(taskType: TaskType): Promise<void> {
   taskCounts[taskType] = Math.max(0, (taskCounts[taskType] || 0) - 1);
+  if (taskType === 'sync') return;
   await syncTaskIndicatorState();
 }
 
 /**
  * Sets integrated task indicator state.
- * @param taskType Task type ('archive' | 'ai' | 'sync')
+ * @param taskType Task type ('archive' | 'ai' | 'sync' | 'capture')
  * @param active Whether task is active
  */
 export async function setTaskIndicator(taskType: TaskType, active: boolean): Promise<void> {
@@ -333,7 +328,8 @@ export async function setTaskIndicator(taskType: TaskType, active: boolean): Pro
 }
 
 /**
- * Displays ongoing sync progress on extension button badge/title and restores original state upon completion (retains backwards compatibility).
+ * Displays ongoing sync progress (tracks sync task reference count).
+ * Note: sync is excluded from toolbar spinner animation to prevent user distraction during periodic background syncing.
  * @param syncing Whether sync is in progress
  */
 export async function setSyncingIndicator(syncing: boolean): Promise<void> {
