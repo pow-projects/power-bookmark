@@ -8,6 +8,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: write
     steps:
@@ -40,12 +41,11 @@ jobs:
           gh release create "$GITHUB_REF_NAME" .output/*.zip \
             --generate-notes || \
           gh release upload "$GITHUB_REF_NAME" .output/*.zip --clobber
-      - name: Submit to stores (Chrome & Firefox)
+      - name: Submit to Chrome Web Store
+        continue-on-error: true
         run: |
           npx wxt submit \
             --chrome-zip .output/*-chrome.zip \
-            --firefox-zip .output/*-firefox.zip \
-            --firefox-sources-zip .output/*-sources.zip \
             --chrome-skip-submit-review
         env:
           CHROME_API_VERSION: v2
@@ -53,6 +53,13 @@ jobs:
           CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
           CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL: ${{ secrets.CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL }}
           CHROME_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.CHROME_SERVICE_ACCOUNT_PRIVATE_KEY }}
+      - name: Submit to Firefox Addon Store
+        continue-on-error: true
+        run: |
+          npx wxt submit \
+            --firefox-zip .output/*-firefox.zip \
+            --firefox-sources-zip .output/*-sources.zip
+        env:
           FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
           FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
