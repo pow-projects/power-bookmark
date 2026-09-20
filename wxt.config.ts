@@ -87,6 +87,8 @@ export default defineConfig({
     },
     define: {
       __SYNC_COOLDOWN_MS__: BUILD_SYNC_COOLDOWN_MS,
+      __CHROME_EXTENSION_ID__: JSON.stringify(process.env.CHROME_EXTENSION_ID || ''),
+      __FIREFOX_EXTENSION_ID__: JSON.stringify(process.env.FIREFOX_EXTENSION_ID || ''),
     },
     build: {
       chunkSizeWarningLimit: 1200,
@@ -180,7 +182,13 @@ export default defineConfig({
         ? {
             browser_specific_settings: {
               gecko: {
-                id: 'powerbookmark@pow-projects.github.io',
+                ...(process.env.FIREFOX_EXTENSION_ID
+                  ? {
+                      id: process.env.FIREFOX_EXTENSION_ID.includes('@') || process.env.FIREFOX_EXTENSION_ID.startsWith('{')
+                        ? process.env.FIREFOX_EXTENSION_ID
+                        : `{${process.env.FIREFOX_EXTENSION_ID}}`
+                    }
+                  : {}),
                 strict_min_version: '142.0',
                 data_collection_permissions: {
                   required: ['none']

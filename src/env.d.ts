@@ -1,6 +1,8 @@
 declare module '*.css';
 
 declare const __SYNC_COOLDOWN_MS__: number;
+declare const __CHROME_EXTENSION_ID__: string;
+declare const __FIREFOX_EXTENSION_ID__: string;
 
 interface ImportMetaEnv {
   readonly WXT_DEV_WEBDAV_URL?: string;

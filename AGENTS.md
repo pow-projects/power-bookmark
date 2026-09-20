@@ -60,8 +60,8 @@ Chrome manages child processes via `wait()` in the main process. Killing only ch
 - **Trigger**: Push a `v*` tag. Tag must match `package.json` version (`v$(version)` check in `.github/workflows/release.yml` fails otherwise).
 - **Procedure**: bump `version` → commit → `git tag vX.Y.Z` → `git push origin vX.Y.Z`.
 - **Store Zips**: `npm run zip:chrome`, `npm run zip:firefox` (Firefox also produces `*-sources.zip`, required for submit).
-- **Submit**: `npx wxt submit --chrome-zip ... --firefox-zip ... --firefox-sources-zip ... --chrome-skip-submit-review` (see `.github/workflows/release.yml`).
-  - `--chrome-skip-submit-review` is intentional: upload only, no review/publish request.
+- **Submit**: `npx wxt submit --chrome-zip ... --firefox-zip ... --firefox-sources-zip ...` (see `.github/workflows/release.yml`).
+  - Automatically submits for review to both Chrome Web Store and Firefox AMO.
   - Firefox channel: `listed` (default, no flag needed).
 - **CI Secrets (names only)**: `CHROME_EXTENSION_ID`, `CHROME_PUBLISHER_ID`, `CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL`, `CHROME_SERVICE_ACCOUNT_PRIVATE_KEY` (`CHROME_API_VERSION=v2`), `FIREFOX_EXTENSION_ID`, `FIREFOX_JWT_ISSUER`, `FIREFOX_JWT_SECRET`. Do not mix with legacy OAuth (`CHROME_CLIENT_ID` / `CHROME_CLIENT_SECRET` / `CHROME_REFRESH_TOKEN`).
 - **Local**: `wxt submit init` generates `.env.submit` (gitignored, never commit). Validate with `--dry-run`.

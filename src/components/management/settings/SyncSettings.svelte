@@ -13,6 +13,7 @@
   import SyncConflictLogsCard from './SyncConflictLogsCard.svelte';
   import CloudOrphanArchivesCard from './CloudOrphanArchivesCard.svelte';
   import { setArchiveSyncEnabled } from '../../../lib/archive/archive-cloud';
+  import { getOAuthRedirectUri } from '../../../lib/sync/oauth-utils';
 
   let provider: 'google-drive' | 'onedrive' | 'dropbox' | 'webdav' | 'none' = 'none';
   
@@ -58,11 +59,7 @@
 
   onMount(async () => {
     try {
-      if (typeof browser !== 'undefined' && browser.identity?.getRedirectURL) {
-        redirectUri = browser.identity.getRedirectURL();
-      } else if (typeof chrome !== 'undefined' && chrome.identity?.getRedirectURL) {
-        redirectUri = chrome.identity.getRedirectURL();
-      }
+      redirectUri = getOAuthRedirectUri();
     } catch (e) {
       console.warn('Failed to get redirect URL:', e);
     }

@@ -31,6 +31,9 @@ jobs:
       - name: Unit & Integration tests
         run: npx vitest run
       - name: Package extension (Chrome & Firefox)
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
         run: |
           npm run zip:chrome
           npm run zip:firefox
@@ -45,8 +48,7 @@ jobs:
         continue-on-error: true
         run: |
           npx wxt submit \
-            --chrome-zip .output/*-chrome.zip \
-            --chrome-skip-submit-review
+            --chrome-zip .output/*-chrome.zip
         env:
           CHROME_API_VERSION: v2
           CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
