@@ -87,6 +87,8 @@ export default defineConfig({
     },
     define: {
       __SYNC_COOLDOWN_MS__: BUILD_SYNC_COOLDOWN_MS,
+      __CHROME_EXTENSION_ID__: JSON.stringify(process.env.CHROME_EXTENSION_ID || ''),
+      __FIREFOX_EXTENSION_ID__: JSON.stringify(process.env.FIREFOX_EXTENSION_ID || ''),
     },
     build: {
       chunkSizeWarningLimit: 1200,

@@ -1,5 +1,6 @@
 import { CloudStorageAdapter, createHttpError, type FileInfo } from './base';
 import db from '../../db';
+import { getOAuthRedirectUri } from '../oauth-utils';
 
 export class OneDriveAdapter extends CloudStorageAdapter {
   private clientId: string = '';
@@ -57,7 +58,7 @@ export class OneDriveAdapter extends CloudStorageAdapter {
       throw new Error(i18n.t('adapters.onedrive.invalidAuth'));
     }
 
-    const redirectUri = browser.identity.getRedirectURL();
+    const redirectUri = getOAuthRedirectUri();
     const verifier = this.generateVerifier();
     const challenge = await this.generateChallenge(verifier);
 

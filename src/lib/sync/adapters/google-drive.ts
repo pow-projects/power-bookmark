@@ -1,5 +1,6 @@
 import { CloudStorageAdapter, createHttpError, type FileInfo } from './base';
 import db from '../../db';
+import { getOAuthRedirectUri } from '../oauth-utils';
 
 export class GoogleDriveAdapter extends CloudStorageAdapter {
   private clientId: string = '';
@@ -69,7 +70,7 @@ export class GoogleDriveAdapter extends CloudStorageAdapter {
     }
 
     // 3. New login (launchWebAuthFlow)
-    const redirectUri = browser.identity.getRedirectURL();
+    const redirectUri = getOAuthRedirectUri();
     
     // Generate PKCE Verifier and Challenge
     const verifier = this.generateVerifier();

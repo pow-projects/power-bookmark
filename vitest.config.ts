@@ -24,6 +24,8 @@ export default defineConfig({
   })],
   define: {
     __SYNC_COOLDOWN_MS__: 1000,
+    __CHROME_EXTENSION_ID__: JSON.stringify(''),
+    __FIREFOX_EXTENSION_ID__: JSON.stringify(''),
   },
   resolve: {
     alias: {
