@@ -9,8 +9,9 @@
   });
 
   async function handleSync() {
-    if ($syncStatus.isSyncing) return;
+    if ($syncStatus.isSyncing || $syncStatus.isCoolingDown) return;
     const res = await triggerManualSync();
+    if (res.throttled) return;
     if (res.success) {
       showToast(res.message || i18n.t('syncSuccess'), 'success');
       document.dispatchEvent(new CustomEvent('sync-resolved'));
@@ -47,10 +48,11 @@
       type="button"
       class="btn-icon sync-btn"
       class:syncing={$syncStatus.isSyncing}
+      class:cooldown={$syncStatus.isCoolingDown}
       on:click={handleSync}
-      disabled={$syncStatus.isSyncing}
+      disabled={$syncStatus.isSyncing || $syncStatus.isCoolingDown}
       aria-label={i18n.t('sync.syncNow')}
-      title={i18n.t('sync.syncNow')}
+      title={$syncStatus.isCoolingDown ? i18n.t('sync.cooldown') : i18n.t('sync.syncNow')}
     >
       <Icon name="refresh-cw" size={14} />
     </button>
@@ -92,6 +94,11 @@
 
   .sync-btn:hover:not(:disabled) {
     color: var(--color-primary);
+  }
+
+  .sync-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .syncing {

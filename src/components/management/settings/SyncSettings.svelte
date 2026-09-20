@@ -117,7 +117,7 @@
         webdavUsername = (await db.settings.get('webdav_username'))?.value || '';
         isWebdavConnected = (await db.settings.get('webdav_connected'))?.value ?? false;
         const hasWebdavPassword = !!(await db.settings.get('webdav_password'))?.value;
-        webdavPassword = (isWebdavConnected && hasWebdavPassword) ? '****' : '';
+        webdavPassword = hasWebdavPassword ? '****' : '';
 
         syncArchiveToCloud = (await db.settings.get('sync_archive_to_cloud'))?.value ?? true;
 
@@ -266,11 +266,11 @@
   }
 
   // Automatic connection verification on WebDAV input completion
-  async function autoConnectWebdav() {
+  async function autoConnectWebdav(force = false) {
     const normalized = normalizeWebdavAuth(webdavUrl, webdavUsername, webdavPassword);
     const cleanUrl = normalized.url;
     const currentSig = `${cleanUrl}|${normalized.username}|${webdavPassword}`;
-    if (!cleanUrl || isProcessing || currentSig === lastAttemptedWebdav) return;
+    if (!cleanUrl || isProcessing || (!force && currentSig === lastAttemptedWebdav)) return;
 
     // If no credentials in URL and username/password/stored password are all missing,
     // save URL only and hold connection attempt to prevent browser 401 auth popup
@@ -299,10 +299,14 @@
       await loadSettings();
       lastAttemptedWebdav = `${normalizeWebdavAuth(webdavUrl, webdavUsername, webdavPassword).url}|${webdavUsername}|${webdavPassword}`;
       await refreshSyncStatus();
-      SyncEngine.sync().catch((e) => console.error('Sync after connect failed:', e));
+      SyncEngine.sync().catch(async (e) => {
+        console.error('Sync after connect failed:', e);
+        await loadSettings();
+      });
     } catch (e: any) {
       isWebdavConnected = false;
       await db.settings.put({ key: 'webdav_connected', value: false });
+      lastAttemptedWebdav = '';
       showToast(i18n.t('syncSettings.webdavFailed', { error: e.message }), 'error');
     } finally {
       isProcessing = false;
@@ -348,9 +352,11 @@
 
   // Trigger immediate sync
   async function handleSyncNow() {
+    if (isProcessing || $syncStatus.isSyncing || $syncStatus.isCoolingDown) return;
     isProcessing = true;
     try {
       const res = await triggerManualSync();
+      if (res.throttled) return;
       await loadSettings();
       if (res.success) {
         showToast(res.message || i18n.t('syncSettings.syncSuccess'), 'success');
@@ -489,7 +495,7 @@
           bind:webdavUsername
           bind:webdavPassword
           {isProcessing}
-          on:connect={autoConnectWebdav}
+          on:connect={() => autoConnectWebdav(true)}
         />
       {/if}
 
@@ -538,13 +544,34 @@
 
         {#if currentConnected}
           <div class="status-actions">
-            <button type="button" class="btn btn-primary btn-sm" on:click={handleSyncNow} disabled={isProcessing || $syncStatus.isSyncing}>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              on:click={handleSyncNow}
+              disabled={isProcessing || $syncStatus.isSyncing || $syncStatus.isCoolingDown}
+              title={$syncStatus.isCoolingDown ? i18n.t('syncCooldown') : undefined}
+            >
               {#if isProcessing || $syncStatus.isSyncing}
                 <Spinner size={12} variant="small" /> {i18n.t('syncSettings.syncing')}...
               {:else}
                 <Icon name="refresh-cw" size={14} /> {i18n.t('syncSettings.syncNow')}
               {/if}
             </button>
+            <button type="button" class="btn btn-danger btn-sm" on:click={handleDisconnect} disabled={isProcessing}>
+              {i18n.t('syncSettings.disconnect')}
+            </button>
+          </div>
+        {:else if provider !== 'none'}
+          <div class="status-actions">
+            {#if provider === 'webdav' && webdavUrl.trim()}
+              <button type="button" class="btn btn-primary btn-sm" on:click={() => autoConnectWebdav(true)} disabled={isProcessing}>
+                {#if isProcessing}
+                  <Spinner size={12} variant="small" /> {i18n.t('syncWebDav.verifying')}
+                {:else}
+                  <Icon name="refresh-cw" size={14} /> {i18n.t('settings.retry')}
+                {/if}
+              </button>
+            {/if}
             <button type="button" class="btn btn-danger btn-sm" on:click={handleDisconnect} disabled={isProcessing}>
               {i18n.t('syncSettings.disconnect')}
             </button>

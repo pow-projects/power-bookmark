@@ -52,6 +52,7 @@ export class WebDavAdapter extends CloudStorageAdapter {
   async authenticate(forceInteractive = false): Promise<void> {
     await this.loadCredentials();
     if (!this.url) {
+      await db.settings.put({ key: 'webdav_connected', value: false });
       throw new Error(i18n.t('adapters.webdav.noServerUrl'));
     }
 
@@ -65,9 +66,7 @@ export class WebDavAdapter extends CloudStorageAdapter {
       await db.settings.put({ key: 'webdav_connected', value: true });
     } catch (e: any) {
       this.client = null;
-      if (typeof e?.status === 'number' && (e.status === 401 || e.status === 403)) {
-        await db.settings.put({ key: 'webdav_connected', value: false });
-      }
+      await db.settings.put({ key: 'webdav_connected', value: false });
       // Errors from webdav library may have status (HTTP status number) — rethrow preserving status
       // so classifyArchiveError can classify 401/403 → auth, 5xx → transient, etc.
       if (typeof e?.status === 'number') {

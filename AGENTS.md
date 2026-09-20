@@ -52,6 +52,10 @@ Chrome manages child processes via `wait()` in the main process. Killing only ch
 - **Timer & Queue Backoff**: In queue/retry tests, mock `retryBackoffMs` to minimal values (5ms) to prevent test timeouts and multi-second slowdowns.
 - **Test State Hygiene**: Always clear mock tables and reset queue singletons (`_resetArchiveQueueForTest()`, `vi.clearAllMocks()`, `vi.unstubAllGlobals()`) in `beforeEach` / `afterEach`.
 
+### Build-Time Constants & Environment Policy
+- **Build Constants Invariant**: Fixed build-time configuration constants (e.g. `BUILD_SYNC_COOLDOWN_MS = 1000`) must be defined directly in `wxt.config.ts` and `vitest.config.ts` via Vite `define` and typed in `src/env.d.ts`, NEVER in `.env`.
+- **`.env` Scope**: `.env` is strictly reserved for local development runner options (`CHROMIUM_*`, `WXT_RUNNER_OPEN`) and dev-only DB seeds (`WXT_DEV_*` in `seedDevSettings`), never for production build parameters.
+
 ### Release & Store Submit (Upload-Only)
 - **Trigger**: Push a `v*` tag. Tag must match `package.json` version (`v$(version)` check in `.github/workflows/release.yml` fails otherwise).
 - **Procedure**: bump `version` → commit → `git tag vX.Y.Z` → `git push origin vX.Y.Z`.

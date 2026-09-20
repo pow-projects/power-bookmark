@@ -6,7 +6,28 @@ export interface Tombstone {
 }
 
 export const TOMBSTONE_KEY = 'sync_tombstones';
+export const SYNC_DISCONNECT_KEY = 'sync_disconnected_at';
 export const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/**
+ * Records that cloud sync was unlinked at `at` (ms).
+ *
+ * INVARIANT (deletion intent survives a failed reconnect): the unlink marker must NOT live in
+ *   db.syncState. Every sync run rewrites the single `id:1` row with its own provider/status
+ *   (`syncing` / `error` / `idle`, sync-engine.ts), so a reconnect whose first attempt fails
+ *   (credentials not yet entered, offline, 401) erases the marker. The following successful sync then
+ *   looks like a fresh install, purges the tombstones recorded during the unlink, and the stale cloud
+ *   copies resurrect the bookmarks the user deleted. Settings are written only by the unlink itself.
+ *   (regression: reconnect-resurrection — marker overwrite by a failed sync)
+ */
+export async function markSyncDisconnected(at: number = Date.now()): Promise<void> {
+  await db.settings.put({ key: SYNC_DISCONNECT_KEY, value: at });
+}
+
+export async function getSyncDisconnectedAt(): Promise<number | null> {
+  const raw = (await db.settings.get(SYNC_DISCONNECT_KEY))?.value;
+  return typeof raw === 'number' ? raw : null;
+}
 
 export async function getTombstones(): Promise<Tombstone[]> {
   const rec = await db.settings.get(TOMBSTONE_KEY);

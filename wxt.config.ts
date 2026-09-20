@@ -75,12 +75,18 @@ try {
 // Configuration for WXT + Svelte
 const detectedChromeBinary = resolveChromeBinary();
 
+// Build-time sync cooldown configuration (milliseconds)
+export const BUILD_SYNC_COOLDOWN_MS = 1000;
+
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-svelte', '@wxt-dev/i18n/module'],
   vite: () => ({
     esbuild: {
       charset: 'ascii',
+    },
+    define: {
+      __SYNC_COOLDOWN_MS__: BUILD_SYNC_COOLDOWN_MS,
     },
     build: {
       chunkSizeWarningLimit: 1200,

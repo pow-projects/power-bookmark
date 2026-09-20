@@ -140,19 +140,18 @@ describe('Popup 확장 버튼 클릭 시 즉시 생성하지 않고 [북마크 �
     await tick();
   }
 
-  it('onMount 시점에 createBookmark가 즉시 호출되지 않고, [북마크 저장], [아카이브 저장] 및 [관리 페이지] 버튼이 표시된다', async () => {
+  it('onMount 시점에 createBookmark가 즉시 호출되지 않고, [북마크 저장] 없이 단일 [아카이브 저장] 및 [관리 페이지] 버튼이 표시된다', async () => {
     new App({ target });
     await flushOnMount();
 
     // Must NOT call createBookmark automatically on mount
     expect(mocks.createBookmark).not.toHaveBeenCalled();
 
-    // Save button must be visible
-    const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
-    expect(saveBtn).not.toBeNull();
-    expect(saveBtn!.textContent).toContain('북마크 저장');
+    // Standalone Save Bookmark button must NOT exist
+    const saveBtn = target.querySelector('.btn-save-bookmark');
+    expect(saveBtn).toBeNull();
 
-    // Archive button must be visible
+    // Single Archive button must be visible
     const archiveBtn = target.querySelector('.btn-archive-bookmark') as HTMLButtonElement | null;
     expect(archiveBtn).not.toBeNull();
     expect(archiveBtn!.textContent).toContain('아카이브 저장');
@@ -166,46 +165,7 @@ describe('Popup 확장 버튼 클릭 시 즉시 생성하지 않고 [북마크 �
     expect(consoleErrorSpy.mock.calls.some((c) => String(c[0]).includes('Popup onMount error'))).toBe(false);
   });
 
-  it('[북마크 저장] 버튼 클릭 시 createBookmark가 호출되고 저장 성공 피드백이 표시된다', async () => {
-    new App({ target });
-    await flushOnMount();
-
-    const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
-    expect(saveBtn).not.toBeNull();
-
-    await saveBtn!.click();
-    await flushOnMount();
-
-    expect(mocks.createBookmark).toHaveBeenCalledTimes(1);
-    expect(mocks.createBookmark).toHaveBeenCalledWith(
-      'https://example.com',
-      'Example Domain',
-      '1',
-      undefined
-    );
-
-    // Shows saved stamp
-    expect(target.textContent).toContain('저장 완료');
-  });
-
-  it('[북마크 저장] 실패 시 오류 배너로 사용자에게 피드백이 표시된다', async () => {
-    mocks.createBookmark.mockRejectedValueOnce(new Error('create failed'));
-    new App({ target });
-    await flushOnMount();
-
-    const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
-    expect(saveBtn).not.toBeNull();
-
-    await saveBtn!.click();
-    await flushOnMount();
-
-    // Failure feedback in error banner
-    const errorBanner = target.querySelector('.error-banner');
-    expect(errorBanner).not.toBeNull();
-    expect(errorBanner!.textContent).toContain('북마크 생성 실패');
-  });
-
-  it('[아카이브 저장] 버튼 클릭 시 북마크가 생성되고 ARCHIVE_CAPTURE_BOOKMARK 메시지가 전송된다', async () => {
+  it('[아카이브 저장] 버튼 클릭 시 북마크가 자동 생성되고 ARCHIVE_CAPTURE_BOOKMARK 메시지가 전송된다', async () => {
     new App({ target });
     await flushOnMount();
 
@@ -219,8 +179,7 @@ describe('Popup 확장 버튼 클릭 시 즉시 생성하지 않고 [북마크 �
     expect(mocks.createBookmark).toHaveBeenCalledWith(
       'https://example.com',
       'Example Domain',
-      '1',
-      undefined
+      '1'
     );
 
     // Verify ARCHIVE_CAPTURE_BOOKMARK message was dispatched to background
@@ -233,7 +192,23 @@ describe('Popup 확장 버튼 클릭 시 즉시 생성하지 않고 [북마크 �
     expect(target.textContent).toContain('저장 완료');
   });
 
-  it('[아카이브 저장] 실패 시 오류 배너로 아카이브 저장 실패 피드백이 표시된다', async () => {
+  it('[아카이브 저장] 시 북마크 생성 실패 시 오류 배너로 사용자에게 피드백이 표시된다', async () => {
+    mocks.createBookmark.mockRejectedValueOnce(new Error('create failed'));
+    new App({ target });
+    await flushOnMount();
+
+    const archiveBtn = target.querySelector('.btn-archive-bookmark') as HTMLButtonElement | null;
+    expect(archiveBtn).not.toBeNull();
+
+    await archiveBtn!.click();
+    await flushOnMount();
+
+    const errorBanner = target.querySelector('.error-banner');
+    expect(errorBanner).not.toBeNull();
+    expect(errorBanner!.textContent).toContain('북마크 생성 실패');
+  });
+
+  it('[아카이브 저장] 캡처 실패 시 오류 배너로 아카이브 저장 실패 피드백이 표시된다', async () => {
     (browser.runtime.sendMessage as any).mockImplementation(async (msg: any) => {
       if (msg.type === 'ARCHIVE_CAPTURE_BOOKMARK') {
         return { success: false, error: 'archive failed' };

@@ -30,8 +30,9 @@ export default defineBackground(() => {
 
   // Dev-only default settings seed (populates empty items with local dev server values)
   // WXT: COMMAND === 'serve' only during `npm run dev` (wxt serve).
+  let devSeedPromise: Promise<void> | null = null;
   if (import.meta.env.COMMAND === 'serve') {
-    seedDevSettings().catch((e) => console.error('Failed to seed dev settings:', e));
+    devSeedPromise = seedDevSettings().catch((e) => console.error('Failed to seed dev settings:', e));
   }
 
   // 1. Start listening to browser bookmark events (maintain local IndexedDB synchronization)
@@ -52,6 +53,36 @@ export default defineBackground(() => {
       console.warn('[archive-cloud] Archive catch-up scan skipped or failed:', e?.message || e);
     }
   };
+
+  // Browser session startup sync: runs once when browser opens/starts (guarded by session storage across SW lifecycles)
+  let inMemorySessionSynced = false;
+  const runStartupSync = async (source: string = 'session-init') => {
+    try {
+      if (devSeedPromise) {
+        await devSeedPromise;
+      }
+      if (typeof browser !== 'undefined' && (browser.storage as any)?.session) {
+        const sessionData = await (browser.storage as any).session.get('startup_sync_completed').catch(() => null);
+        if (sessionData?.startup_sync_completed) {
+          return;
+        }
+        await (browser.storage as any).session.set({ startup_sync_completed: true }).catch(() => {});
+      } else {
+        if (inMemorySessionSynced && source !== 'onStartup') return;
+        inMemorySessionSynced = true;
+      }
+      console.log(`Running startup sync (${source})...`);
+      await BookmarkManager.syncAll();
+      await SyncEngine.sync();
+      await runArchiveCatchUp();
+      await refreshActiveTabBadge();
+    } catch (e) {
+      console.error(`Startup sync failed (${source}):`, e);
+    }
+  };
+
+  // Trigger startup sync on worker launch for a new browser session
+  runStartupSync('session-init');
 
   // 3. Trigger 5-second debounced cloud sync on bookmark modification
   // Guard: while a local batch operation mutes bookmark listeners (import loop, sync write-back),
@@ -158,10 +189,11 @@ export default defineBackground(() => {
     }
   };
 
-  // Ensure context menu is created on service worker wake-up / browser startup / installation
+  // Ensure context menu is created and run startup sync on browser startup
   setupContextMenu();
-  browser.runtime.onStartup?.addListener(() => {
+  browser.runtime.onStartup?.addListener(async () => {
     setupContextMenu();
+    await runStartupSync('onStartup');
   });
 
   // 6. Run one-time full sync on install or update
@@ -169,9 +201,15 @@ export default defineBackground(() => {
     setupContextMenu();
     console.log('Extension installed/updated. Running initial sync...', details.reason);
     try {
+      if (devSeedPromise) {
+        await devSeedPromise;
+      }
       const archiveCompressSetting = await db.settings.get('archive_compress');
       if (!archiveCompressSetting) {
         await db.settings.put({ key: 'archive_compress', value: true });
+      }
+      if (typeof browser !== 'undefined' && (browser.storage as any)?.session) {
+        await (browser.storage as any).session.set({ startup_sync_completed: true }).catch(() => {});
       }
       await BookmarkManager.syncAll();
       await SyncEngine.sync();

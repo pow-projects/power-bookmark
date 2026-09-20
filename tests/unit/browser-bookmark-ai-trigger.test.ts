@@ -455,7 +455,7 @@ describe('Browser Native Bookmark AI Integration', () => {
     expect(mockEnqueueAiJob).toHaveBeenCalledTimes(1);
   });
 
-  it('skips AI when autoOnBrowserBookmark setting is false', async () => {
+  it('always triggers AI for browser native bookmarks regardless of legacy autoOnBrowserBookmark setting', async () => {
     mockGetAiSettings.mockResolvedValue({
       provider: 'openai',
       model: 'gpt-4o',
@@ -475,7 +475,7 @@ describe('Browser Native Bookmark AI Integration', () => {
       parentId: '1'
     });
 
-    expect(mockEnqueueAiJob).not.toHaveBeenCalled();
+    expect(mockEnqueueAiJob).toHaveBeenCalledTimes(1);
   });
 
   it('skips AI when isAiConfigured returns false', async () => {

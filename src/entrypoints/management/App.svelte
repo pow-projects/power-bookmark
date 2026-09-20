@@ -44,6 +44,8 @@
       activeTab = 'settings';
       if (sectionParam === 'sync' || sectionParam === 'ai' || sectionParam === 'archive') {
         activeSection = sectionParam as any;
+      } else {
+        activeSection = 'archive';
       }
     } else if (tabParam && isValidTab(tabParam)) {
       activeTab = tabParam as any;
@@ -89,6 +91,7 @@
 
   function handleTabChange(tab: typeof activeTab) {
     activeTab = tab;
+    activeSection = 'archive';
     const newUrl = window.location.pathname + `?tab=${tab}`;
     window.history.pushState({ tab }, '', newUrl);
   }

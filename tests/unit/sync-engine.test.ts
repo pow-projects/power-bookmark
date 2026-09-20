@@ -152,6 +152,10 @@ vi.mock('../../src/lib/sync/adapters/google-drive', () => ({
   GoogleDriveAdapter: vi.fn().mockImplementation(() => mockAdapter)
 }));
 
+vi.mock('../../src/lib/sync/adapters/webdav', () => ({
+  WebDavAdapter: vi.fn().mockImplementation(() => mockAdapter)
+}));
+
 import {
   SyncEngine,
   normalizeCloudBookmark,
@@ -1618,6 +1622,48 @@ describe('SyncEngine 3-Tier Timestamp & syncedAt isolation', () => {
     expect(stores.settings.get('sync_tombstones')).toEqual([{ syncId: 'post-marker', deletedAt: 5000 }]);
   });
 
+  it('언링크 후 재연결 첫 sync가 실패해 syncState가 덮어써져도 삭제 의도는 폐기되지 않는다 (마커 소실 회귀)', async () => {
+    // Unlink: setSyncProvider('none') leaves the marker (settings key + syncState none/idle row) and clears tombstones.
+    stores.syncState = [{ id: 1, provider: 'none', lastSyncAt: 3000, status: 'idle' }];
+    stores.settings.set('sync_disconnected_at', 3000);
+    // Deletion performed while unlinked -> deletion intent recorded
+    stores.settings.set('sync_tombstones', [{ syncId: 'sync-unlink-del-2', deletedAt: 5000 }]);
+
+    // The first sync after reconnect can fail (credentials not entered yet, offline, 401):
+    // it overwrites syncState id:1 with the current provider/error, so the none/idle marker row disappears.
+    mockAdapter.readFile.mockRejectedValue(new Error('401 Unauthorized'));
+    await expect(SyncEngine.sync()).rejects.toThrow();
+    expect(stores.syncState.some((s: any) => s.provider === 'none')).toBe(false);
+
+    // The following sync succeeds - the deleted bookmarks must not come back.
+    mockAdapter.readFile.mockResolvedValue(JSON.stringify({
+      bookmarks: [{
+        syncId: 'sync-unlink-del-2',
+        url: 'https://unlinked-delete-2.com',
+        title: 'ShouldNotResurrect',
+        folderPath: '',
+        description: '',
+        createdAt: 1000,
+        modifiedAt: 1000
+      }],
+      tombstones: [],
+      synchronizedAt: 1000
+    }));
+    mockBookmarkGetTree.mockResolvedValue([
+      { id: '0', title: 'root', children: [{ id: '1', title: 'Bookmarks Bar', children: [] }] }
+    ]);
+    mockBookmarkSearch.mockResolvedValue([]);
+    mockBookmarkCreate.mockResolvedValue({ id: 'bm-zombie-2', url: 'https://unlinked-delete-2.com', title: 'ShouldNotResurrect' });
+
+    await SyncEngine.sync();
+
+    expect(mockBookmarkCreate).not.toHaveBeenCalled();
+    expect(stores.bookmarks.find(b => b.syncId === 'sync-unlink-del-2')).toBeFalsy();
+    const writtenPayload = JSON.parse(mockAdapter.writeFile.mock.calls.at(-1)![1]);
+    expect(writtenPayload.bookmarks).toEqual([]);
+    expect(writtenPayload.tombstones).toEqual([{ syncId: 'sync-unlink-del-2', deletedAt: 5000 }]);
+  });
+
   it('triggerDebouncedSync는 5초 디바운스 후 SyncEngine.sync()를 실행한다', async () => {
     vi.useFakeTimers();
     const syncSpy = vi.spyOn(SyncEngine, 'sync').mockResolvedValue(undefined);
@@ -1634,6 +1680,7 @@ describe('SyncEngine 3-Tier Timestamp & syncedAt isolation', () => {
     expect(syncSpy).toHaveBeenCalledTimes(1);
 
     vi.useRealTimers();
+    syncSpy.mockRestore();
   });
 });
 
@@ -1806,6 +1853,44 @@ describe('SyncEngine sync interval and alarm schedule configuration', () => {
         SyncEngine.SYNC_ALARM_NAME,
         { delayInMinutes: 15, periodInMinutes: 15 }
       );
+    });
+  });
+
+  describe('WebDAV connection status and readFile error handling', () => {
+    beforeEach(() => {
+      stores.bookmarks = [];
+      stores.archivedPages = [];
+      stores.syncState = [];
+      stores.settings.clear();
+      stores.nextBookmarkId = 1;
+      vi.clearAllMocks();
+      SyncEngine.resetAdapter();
+      vi.spyOn(BookmarkManager, 'syncAll').mockImplementation(async () => {});
+    });
+
+    it('readFile 실패 시 404가 아닌 네트워크/연결 에러면 빈 클라우드 파일로 간주하지 않고 에러를 다시 던진다', async () => {
+      stores.settings.set('sync_provider', 'webdav');
+      stores.settings.set('webdav_connected', true);
+      const connErr = new Error('ECONNREFUSED connect to http://localhost:8085');
+      mockAdapter.readFile.mockRejectedValueOnce(connErr);
+
+      await expect(SyncEngine.sync()).rejects.toThrow('ECONNREFUSED');
+      expect(mockAdapter.writeFile).not.toHaveBeenCalled();
+      expect(stores.settings.get('webdav_connected')).toBe(false);
+      const syncStatus = stores.syncState.find((s: any) => s.id === 1);
+      expect(syncStatus?.status).toBe('error');
+    });
+
+    it('readFile 실패 시 404 에러면 새 클라우드 파일 생성으로 간주하고 계속 진행한다', async () => {
+      stores.settings.set('sync_provider', 'webdav');
+      stores.settings.set('webdav_connected', true);
+      const notFoundErr = { status: 404, message: 'File not found' };
+      mockAdapter.readFile.mockRejectedValueOnce(notFoundErr);
+      mockAdapter.writeFile.mockResolvedValueOnce(undefined);
+      mockAdapter.getLastModified.mockResolvedValue(1000);
+
+      await expect(SyncEngine.sync()).resolves.toBeUndefined();
+      expect(mockAdapter.writeFile).toHaveBeenCalled();
     });
   });
 });

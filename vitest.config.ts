@@ -22,6 +22,9 @@ export default defineConfig({
       handler?.(warning);
     },
   })],
+  define: {
+    __SYNC_COOLDOWN_MS__: 1000,
+  },
   resolve: {
     alias: {
       '~': path.resolve(__dirname, './src'),

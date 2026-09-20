@@ -83,13 +83,23 @@ describe('CrossRootFolderModal.svelte', () => {
     });
     await tick();
 
-    // Default: 'move-recommended'
+    // Button order in bulk-actions: [Move all to recommended location] is 1st, [Create all] is 2nd, [Skip all] is 3rd
+    const batchButtons = document.querySelectorAll('.bulk-actions button') as NodeListOf<HTMLButtonElement>;
+    expect(batchButtons[0].textContent).toContain('모두 추천 위치로 이동');
+    expect(batchButtons[1].textContent).toContain('모두 현재 위치에 새 폴더 생성');
+    expect(batchButtons[2].textContent).toContain('모두 건너뛰기');
+
+    // Default: 'move-recommended' and it should be the first choice in each review card
     const radioInputs = document.querySelectorAll('input[type="radio"]') as NodeListOf<HTMLInputElement>;
+    const firstCardRadios = document.querySelectorAll('.review-card:first-child input[type="radio"]') as NodeListOf<HTMLInputElement>;
+    expect(firstCardRadios[0].value).toBe('move-recommended');
+    expect(firstCardRadios[1].value).toBe('create-here');
+    expect(firstCardRadios[2].value).toBe('skip');
+
     const moveRadios = Array.from(radioInputs).filter(r => r.value === 'move-recommended');
     expect(moveRadios.every(r => r.checked)).toBe(true);
 
-    // Global Batch button 1: [Create all new folders at current location]
-    const batchButtons = document.querySelectorAll('.bulk-actions button') as NodeListOf<HTMLButtonElement>;
+    // Global Batch button: [Create all new folders at current location]
     const createAllBtn = Array.from(batchButtons).find(b => b.textContent?.includes('모두 현재 위치에 새 폴더 생성'));
     expect(createAllBtn).toBeDefined();
     await createAllBtn?.click();
@@ -98,7 +108,7 @@ describe('CrossRootFolderModal.svelte', () => {
     const createRadios = Array.from(document.querySelectorAll('input[type="radio"]') as NodeListOf<HTMLInputElement>).filter(r => r.value === 'create-here');
     expect(createRadios.every(r => r.checked)).toBe(true);
 
-    // Global Batch button 3: [Skip all]
+    // Global Batch button: [Skip all]
     const skipAllBtn = Array.from(batchButtons).find(b => b.textContent?.includes('모두 건너뛰기'));
     expect(skipAllBtn).toBeDefined();
     await skipAllBtn?.click();
@@ -107,7 +117,7 @@ describe('CrossRootFolderModal.svelte', () => {
     const skipRadios = Array.from(document.querySelectorAll('input[type="radio"]') as NodeListOf<HTMLInputElement>).filter(r => r.value === 'skip');
     expect(skipRadios.every(r => r.checked)).toBe(true);
 
-    // Global Batch button 2: [Move all to recommended location]
+    // Global Batch button: [Move all to recommended location]
     const moveAllBtn = Array.from(batchButtons).find(b => b.textContent?.includes('모두 추천 위치로 이동'));
     expect(moveAllBtn).toBeDefined();
     await moveAllBtn?.click();

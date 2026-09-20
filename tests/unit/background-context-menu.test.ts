@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { BookmarkManager } from '../../src/lib/bookmarks/bookmark-manager';
+import { SyncEngine } from '../../src/lib/sync/sync-engine';
 
 const {
   mockRemoveAll,
@@ -171,11 +173,11 @@ describe('Background Context Menu Lifecycle', () => {
       expect.any(Function)
     );
 
-    // 2. Must register on browser startup
+    // 2. Must register on browser startup and trigger startup sync
     mockCreate.mockClear();
     mockRemoveAll.mockClear();
     for (const startupCb of runtimeListeners.onStartup) {
-      startupCb();
+      await startupCb();
     }
     expect(mockRemoveAll).toHaveBeenCalled();
     expect(mockCreate).toHaveBeenCalledWith(
@@ -185,6 +187,8 @@ describe('Background Context Menu Lifecycle', () => {
       }),
       expect.any(Function)
     );
+    expect(BookmarkManager.syncAll).toHaveBeenCalled();
+    expect(SyncEngine.sync).toHaveBeenCalled();
 
     // 3. Must register on extension install/update
     mockCreate.mockClear();

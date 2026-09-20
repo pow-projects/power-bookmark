@@ -1,5 +1,7 @@
 declare module '*.css';
 
+declare const __SYNC_COOLDOWN_MS__: number;
+
 interface ImportMetaEnv {
   readonly WXT_DEV_WEBDAV_URL?: string;
   readonly WXT_DEV_WEBDAV_USERNAME?: string;

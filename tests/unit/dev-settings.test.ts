@@ -21,6 +21,12 @@ vi.mock('../../src/lib/db', () => ({
   default: mockDb
 }));
 
+vi.mock('../../src/lib/sync/adapters/webdav', () => ({
+  WebDavAdapter: class {
+    authenticate = vi.fn().mockRejectedValue(new Error('Dev server offline'));
+  }
+}));
+
 describe('seedDevSettings', () => {
   beforeEach(async () => {
     await mockDb.settings.clear();
@@ -38,7 +44,7 @@ describe('seedDevSettings', () => {
     expect((await mockDb.settings.get('webdav_url')).value).toBe('http://localhost:8085/');
     expect((await mockDb.settings.get('webdav_username')).value).toBe('admin');
     expect(await decryptCredential((await mockDb.settings.get('webdav_password')).value)).toBe('password123');
-    expect((await mockDb.settings.get('webdav_connected')).value).toBe(true);
+    expect((await mockDb.settings.get('webdav_connected')).value).toBe(false);
     expect((await mockDb.settings.get('sync_provider')).value).toBe('webdav');
     expect((await mockDb.settings.get(AI_SETTINGS_KEYS.PROVIDER)).value).toBe('custom');
     expect((await mockDb.settings.get(AI_SETTINGS_KEYS.CUSTOM_ENDPOINT)).value).toBe(
@@ -60,12 +66,13 @@ describe('seedDevSettings', () => {
     expect((await mockDb.settings.get('sync_provider')).value).toBe('webdav');
   });
 
-  it('기존 dev 환경에서 webdav_connected가 누락되어 있으면 true로 보정한다', async () => {
+  it('기존 dev 환경에서 webdav_connected가 false이거나 누락되어 있어도 강제로 true로 덮어쓰지 않는다', async () => {
     await mockDb.settings.put({ key: 'sync_provider', value: 'webdav' });
     await mockDb.settings.put({ key: 'webdav_url', value: 'http://localhost:8085/' });
+    await mockDb.settings.put({ key: 'webdav_connected', value: false });
     await seedDevSettings();
 
-    expect((await mockDb.settings.get('webdav_connected')).value).toBe(true);
+    expect((await mockDb.settings.get('webdav_connected')).value).toBe(false);
   });
 
   it('AI provider가 이미 설정돼 있으면 시드하지 않는다', async () => {
@@ -91,7 +98,7 @@ describe('seedDevSettings', () => {
     expect((await mockDb.settings.get('webdav_url')).value).toBe('http://localhost:9000/dav/');
     expect((await mockDb.settings.get('webdav_username')).value).toBe('custom_user');
     expect(await decryptCredential((await mockDb.settings.get('webdav_password')).value)).toBe('secret999');
-    expect((await mockDb.settings.get('webdav_connected')).value).toBe(true);
+    expect((await mockDb.settings.get('webdav_connected')).value).toBe(false);
     expect((await mockDb.settings.get('sync_provider')).value).toBe('webdav');
     expect((await mockDb.settings.get(AI_SETTINGS_KEYS.PROVIDER)).value).toBe('ollama');
     expect((await mockDb.settings.get(AI_SETTINGS_KEYS.CUSTOM_ENDPOINT)).value).toBe(

@@ -22,6 +22,7 @@ import { setSyncingIndicator } from '../bookmarks/badge-manager';
 import {
   applyTombstonesToMerge,
   clearTombstones,
+  getSyncDisconnectedAt,
   getTombstones,
   mergeTombstones,
   persistTombstones,
@@ -145,10 +146,20 @@ export class SyncEngine {
         const parsed = JSON.parse(cloudDataStr);
         cloudBookmarks = (parsed.bookmarks || []).map(normalizeCloudBookmark);
         cloudTombstones = parsed.tombstones || [];
-      } catch (e) {
-        // Treat cloud file as non-existent if file is missing or parse error occurs
-        isCloudFileExist = false;
-        console.log('No cloud sync file found, creating new one.');
+      } catch (e: any) {
+        // Only treat cloud file as non-existent if file is missing (404 / not found) or parse error occurs (empty/corrupted file)
+        const isNotFound = e?.status === 404 ||
+          (typeof e?.message === 'string' && /not found|404/i.test(e.message));
+        const isSyntaxError = e instanceof SyntaxError;
+
+        if (isNotFound || isSyntaxError) {
+          isCloudFileExist = false;
+          console.log('No cloud sync file found, creating new one.');
+        } else {
+          // Connection error, network error, auth failure, 5xx, offline server, etc.
+          // Rethrow so sync fails safely without misidentifying offline server as empty cloud backup.
+          throw e;
+        }
       }
 
       // Gap B: Optimistic revalidation to prevent cross-device concurrent write (lost-update).
@@ -331,24 +342,34 @@ export class SyncEngine {
       let localTombstones = await getTombstones();
       if (isFirstSync && localTombstones.length > 0) {
         // INVARIANT (regression: reconnect-resurrection): the retroactive tombstone purge must apply
-        //   ONLY to a genuinely fresh install. setSyncProvider('none') writes a `{provider:'none',
-        //   status:'idle'}` disconnect marker (sync-status-store.ts) but wipes syncState history, so a
-        //   reconnect after unlink is misjudged as first sync — and deletions recorded WHILE DISCONNECTED
-        //   (recordTombstone fires unconditionally, provider-independent) were purged here, letting the
-        //   stale cloud copy resurrect into DB + browser tree on reconnect.
-        //   If a disconnect marker exists, tombstones recorded AFTER the unlink are confirmed local
-        //   deletion intent (disconnect itself already cleared everything older), so they are KEPT and
-        //   propagated; only pre-marker residuals are purged. No marker at all = true first install →
-        //   full purge (preserves the archive-reset-wipe §8 guard / "첫 동기화 시 클라우드 복구" policy).
+        //   ONLY to a genuinely fresh install. setSyncProvider('none') deletes the syncState history and
+        //   the `initial_sync_completed_*` flag, so a reconnect after unlink is misjudged as first sync —
+        //   and deletions recorded WHILE DISCONNECTED (recordTombstone fires unconditionally,
+        //   provider-independent) would be purged here, letting the stale cloud copy resurrect into DB +
+        //   browser tree on reconnect.
+        //   The unlink marker therefore lives in db.settings (tombstones.markSyncDisconnected), NOT in
+        //   syncState: every sync run rewrites the single syncState `id:1` row with its own provider/status,
+        //   so a reconnect whose first attempt fails (credentials not yet entered, offline, 401) used to
+        //   erase a syncState-based marker and fall back into the fresh-install purge.
+        //   With a marker, tombstones recorded AFTER the unlink are confirmed local deletion intent
+        //   (the unlink itself already cleared everything older), so they are KEPT and propagated; only
+        //   pre-marker residuals are purged. No marker at all = true first install → full purge
+        //   (preserves the archive-reset-wipe §8 guard / "restore from cloud on first sync" policy).
+        const settingsMarker = await getSyncDisconnectedAt();
         const disconnectMarkers = syncStates.filter(
           (s: any) => s.provider === 'none' && s.status === 'idle'
         );
-        if (disconnectMarkers.length === 0) {
+        // Newest unlink wins (markers accumulate across repeated disconnects). The syncState rows are a
+        // read-only fallback for records written before the settings marker existed.
+        const markerTimes = [
+          ...(settingsMarker !== null ? [settingsMarker] : []),
+          ...disconnectMarkers.map((s: any) => s.lastSyncAt || 0)
+        ];
+        if (markerTimes.length === 0) {
           localTombstones = [];
           await clearTombstones();
         } else {
-          // Newest unlink wins (markers accumulate across repeated disconnects).
-          const cutoff = Math.max(...disconnectMarkers.map((s: any) => s.lastSyncAt || 0));
+          const cutoff = Math.max(...markerTimes);
           const survivors = localTombstones.filter((t) => t.deletedAt > cutoff);
           if (survivors.length !== localTombstones.length) {
             localTombstones = survivors;
@@ -747,14 +768,25 @@ export class SyncEngine {
     } catch (error: any) {
       console.error('Synchronization failed:', error);
       const currentProvider = (await db.settings.get('sync_provider'))?.value || 'none';
+      if (currentProvider === 'webdav') {
+        await db.settings.put({ key: 'webdav_connected', value: false });
+      }
       await db.syncState.put({
         id: 1,
         provider: currentProvider,
         lastSyncAt: Date.now(),
         status: 'error'
       });
-      throw error;
+      if (typeof document !== 'undefined') {
+        document.dispatchEvent(new CustomEvent('sync-resolved'));
       }
+      if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
+        try {
+          browser.runtime.sendMessage({ type: 'SYNC_RESOLVED' }).catch(() => {});
+        } catch {}
+      }
+      throw error;
+    }
     } finally {
       BookmarkManager.setSyncMuted(false);
       // M-2: Release lock on all paths (success/failure/exception) to prevent lock deadlock on exceptions

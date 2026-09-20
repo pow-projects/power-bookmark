@@ -31,6 +31,9 @@
     {#if successAction === 'archive' || successAction === 'save'}
       <Icon name="check" size={16} />
       <span>{i18n.t('popup.saved')}</span>
+    {:else if isArchiving}
+      <span class="spin"><Icon name="refresh-cw" size={14} /></span>
+      <span>{i18n.t('popup.actions.savingArchive')}</span>
     {:else if hasArchive}
       <Icon name="eye" size={16} />
       <span>{i18n.t('popup.actions.viewArchive')}</span>
@@ -70,6 +73,18 @@
     flex: 1;
     min-width: 0;
     justify-content: center;
+  }
+
+  .spin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
   }
 
   /* Delete = dashed danger ghost — removed filled danger button (v2).

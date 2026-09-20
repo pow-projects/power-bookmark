@@ -64,6 +64,11 @@ vi.mock('../../src/lib/bookmarks/bookmark-manager', () => ({
 }));
 vi.mock('../../src/lib/ai/ai-summarizer', () => ({
   isAiConfigured: vi.fn().mockResolvedValue(false),
+  getAiSettings: vi.fn().mockResolvedValue({
+    autoSummarize: false,
+    autoTags: true,
+    autoFolder: true
+  }),
   type: {}
 }));
 vi.mock('../../src/lib/archive/page-capture', () => ({
@@ -125,7 +130,7 @@ describe('popup App.svelte — 이미 등록된 북마크 기존 내용 표시 (
     stubBrowser();
   });
 
-  it('기존 북마크가 있으면 findDuplicate 결과의 제목이 title 입력값으로 바인딩된다', async () => {
+  it('기존 북마크가 있으면 수정 모드로 진입하고 옵션 카드 및 액션 버튼이 바인딩된다', async () => {
     mockTabsQuery.mockResolvedValue([
       { id: 1, url: 'https://example.com/page', title: 'Example Page Title', active: true }
     ]);
@@ -142,10 +147,10 @@ describe('popup App.svelte — 이미 등록된 북마크 기존 내용 표시 (
 
     const { target } = await mountApp();
 
-    const titleInput = target.querySelector('#title') as HTMLInputElement | null;
-    expect(titleInput).not.toBeNull();
-    // Existing registered bookmark title should be displayed instead of page title
-    expect(titleInput!.value).toBe('기존 등록 제목');
+    // In modern UI, form input #title is removed; options card and action buttons are displayed
+    expect(target.querySelector('#title')).toBeNull();
+    expect(target.querySelector('.options-container')).not.toBeNull();
+    expect(target.querySelector('.action-delete')).not.toBeNull();
   });
 
   it('기존 북마크가 있으면 수정 모드로 진입하고 새 북마크를 생성하지 않는다', async () => {
@@ -174,7 +179,7 @@ describe('popup App.svelte — 이미 등록된 북마크 기존 내용 표시 (
     expect(target.textContent).toContain('삭제');
   });
 
-  it('기존 북마크의 폴더가 browser.bookmarks.get(parentId)로 역매칭되어 드롭다운에 선택된다', async () => {
+  it('기존 북마크가 있을 때 옵션 카드의 AI 토글 및 클라우드 동기화 상태가 제공된다', async () => {
     mockTabsQuery.mockResolvedValue([
       { id: 1, url: 'https://example.com/page', title: 'Example Page Title', active: true }
     ]);
@@ -188,15 +193,13 @@ describe('popup App.svelte — 이미 등록된 북마크 기존 내용 표시 (
       description: '',
       folderPath: '북마크바/개발'
     });
-    // browser.bookmarks.get -> returns parent folder id='2' (Development)
     mockBookmarksGet.mockResolvedValue([{ id: 'bm-42', parentId: '2', title: '기존 등록 제목' }]);
 
     const { target } = await mountApp();
 
-    const selectedText = target.querySelector('.selected-text');
-    expect(selectedText).not.toBeNull();
-    // Folder containing existing bookmark (Development) is displayed in dropdown
-    expect(selectedText!.textContent).toContain('개발');
+    const syncBadge = target.querySelector('.sync-badge');
+    expect(syncBadge).not.toBeNull();
+    expect(target.querySelector('#toggle-auto-tags')).not.toBeNull();
   });
 
   it('클라우드 아카이브 인덱스에 URL이 일치하는 항목이 있으면 checkHasArchive가 true로 판별된다', async () => {

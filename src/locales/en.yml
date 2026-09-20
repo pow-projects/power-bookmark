@@ -12,6 +12,7 @@ manage: Management Page
 alreadyBookmarked: This page is already bookmarked.
 syncSuccess: Sync completed successfully
 syncError: Sync failed
+syncCooldown: Please wait a moment before trying again.
 checkHealth: Check Link Health
 statsTitle: Dashboard
 
@@ -66,6 +67,30 @@ popup:
     deleted: Deleted
     savingArchive: Saving archive...
     savedArchive: Archive saved
+  sync:
+    title: Cloud Sync
+    connected: "{provider} Connected"
+    disconnected: Not Connected
+    disconnectedProvider: "{provider} Not Connected"
+    syncing: Syncing in progress
+    lastSync: "Last synced: {time}"
+    tooltipConnected: "Cloud sync ({provider}) is active. Bookmarks and archives sync automatically."
+    tooltipDisconnected: "Cloud sync is not configured. Configure cloud sync in Settings."
+    tooltipDisconnectedProvider: "{provider} is not connected. Click to open Settings."
+    tooltipSyncing: "Currently syncing with cloud storage."
+    goToSettings: "Go to Cloud Sync Settings"
+  aiOptions:
+    title: AI Auto Processing
+    autoSummarize: Auto Summary
+    autoSummarizeTooltip: "Analyzes body text and generates 2-3 sentence summary when adding a bookmark."
+    autoTags: Auto Tags
+    autoTagsTooltip: "Automatically extracts key keywords as hashtags when adding a bookmark."
+    autoFolder: Auto Folder
+    autoFolderTooltip: "Analyzes existing folder structure to place bookmarks into appropriate folders."
+    notConfiguredTooltip: "AI API key or model is not configured. Configure in AI Settings."
+    noProvider: "No Provider Selected"
+    configureProvider: "Go to AI Settings"
+    goToSettings: "Go to AI Settings"
 
 # ── Shared Components ──
 common:
@@ -385,16 +410,15 @@ folders:
     pendingCount: "{count} pending"
     intro: "AI suggested organizing bookmarks across root locations (e.g., Bookmarks Bar ↔ Other Bookmarks). Please select how each should be handled."
     quickSelect: Quick Select
-    allCreateHere: Create new folder in current location for all
     allMoveRecommended: Move all to recommended location
+    allCreateHere: Create new folder in current location for all
     allSkip: Skip all
     currentLocation: Current Location
     suggestedLocation: AI Suggested Location
-    choiceCreateHere: Create new folder in current location
-    defaultBadge: Default
-    choiceCreateHereDesc: "Create '{path}' folder under current root ({root}) and move."
     choiceMoveRecommended: Move to recommended location
     choiceMoveRecommendedDesc: "Move to '{path}' under recommended root ({root})."
+    choiceCreateHere: Create new folder in current location
+    choiceCreateHereDesc: "Create '{path}' folder under current root ({root}) and move."
     choiceSkip: Skip
     choiceSkipDesc: Keep current location without moving.
     apply: Apply Changes
@@ -618,6 +642,7 @@ aiSettings:
   modelsLoading: Loading model list or please check endpoint. You can also type custom model name.
   modelsLoadedToast: "Loaded {count} models. Select a model to use."
   fetchFailed: Failed to fetch available model list.
+  endpointConnectFailed: Failed to connect to server. Please check if the server is running and verify the URL.
   saved: AI settings saved.
   saveFailed: "Failed to save AI settings: {error}"
   autoSummarizeTitle: Auto-generate summary
@@ -674,6 +699,7 @@ sync:
   lastSyncTime: Last Sync
   syncNow: Sync Now
   loadStateFailed: Failed to load sync state
+  cooldown: Please wait a moment before trying again.
 
 syncWidget:
   never: Never

@@ -1,6 +1,7 @@
 import db from './db';
 import { AI_SETTINGS_KEYS } from './ai/types';
 import { saveWebdavSettings } from './sync/webdav-settings';
+import { WebDavAdapter } from './sync/adapters/webdav';
 
 /**
  * Development (dev) only default settings seed.
@@ -35,12 +36,13 @@ export async function seedDevSettings(): Promise<void> {
         password: webdavPassword
       });
     }
-    await db.settings.put({ key: 'webdav_connected', value: true });
     await db.settings.put({ key: 'sync_provider', value: 'webdav' });
-  } else if (syncProvider === 'webdav') {
-    const webdavConnected = (await db.settings.get('webdav_connected'))?.value;
-    if (!webdavConnected && (await db.settings.get('webdav_url'))?.value) {
-      await db.settings.put({ key: 'webdav_connected', value: true });
+    await db.settings.put({ key: 'webdav_connected', value: false });
+    try {
+      const adapter = new WebDavAdapter();
+      await adapter.authenticate();
+    } catch {
+      // Offline or unreachable dev server — webdav_connected remains false
     }
   }
 

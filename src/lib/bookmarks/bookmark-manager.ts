@@ -438,25 +438,23 @@ export class BookmarkManager {
               const { getAiSettings, isAiConfigured } = await import('../ai/ai-summarizer');
               if (await isAiConfigured()) {
                 const settings = await getAiSettings();
-                const autoOnBrowser = settings.autoOnBrowserBookmark ?? true;
-                if (autoOnBrowser) {
-                  const hasAutoAction = !!(settings.autoSummarize || settings.autoTags || settings.autoFolder);
-                  if (hasAutoAction) {
-                    const { enqueueAiJob } = await import('../ai/ai-queue');
-                    await enqueueAiJob({
-                      bookmarkId: newlyAddedBookmarkId,
-                      kind: 'auto',
-                      payload: {
-                        title: node.title,
-                        url: node.url
-                      },
-                      options: {
-                        autoSummarize: settings.autoSummarize,
-                        autoTags: settings.autoTags,
-                        autoFolder: settings.autoFolder
-                      }
-                    });
-                  }
+                // Browser bookmark auto-analysis is always enabled (runs whenever autoSummarize, autoTags, or autoFolder is true)
+                const hasAutoAction = !!(settings.autoSummarize || settings.autoTags || settings.autoFolder);
+                if (hasAutoAction) {
+                  const { enqueueAiJob } = await import('../ai/ai-queue');
+                  await enqueueAiJob({
+                    bookmarkId: newlyAddedBookmarkId,
+                    kind: 'auto',
+                    payload: {
+                      title: node.title,
+                      url: node.url
+                    },
+                    options: {
+                      autoSummarize: settings.autoSummarize,
+                      autoTags: settings.autoTags,
+                      autoFolder: settings.autoFolder
+                    }
+                  });
                 }
               }
             } catch (e) {

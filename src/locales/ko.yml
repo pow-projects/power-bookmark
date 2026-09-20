@@ -12,6 +12,7 @@ manage: 관리 페이지
 alreadyBookmarked: 이미 북마크된 페이지입니다
 syncSuccess: 동기화 완료
 syncError: 동기화 실패
+syncCooldown: 잠시 후 다시 시도해주세요.
 checkHealth: 링크 상태 검사
 statsTitle: 대시보드
 
@@ -66,6 +67,30 @@ popup:
     deleted: 삭제됨
     savingArchive: 아카이브 저장 중...
     savedArchive: 아카이브 저장 완료
+  sync:
+    title: 클라우드 동기화
+    connected: "{provider} 연동됨"
+    disconnected: 연동 안 됨
+    disconnectedProvider: "{provider} 연결 안 됨"
+    syncing: 동기화 진행 중
+    lastSync: "최근 동기화: {time}"
+    tooltipConnected: "클라우드 동기화({provider})가 활성화되어 있습니다. 북마크 및 아카이브가 클라우드와 자동 동기화됩니다."
+    tooltipDisconnected: "클라우드 동기화가 설정되어 있지 않습니다. 관리 페이지의 동기화 탭에서 클라우드 연동을 구성할 수 있습니다."
+    tooltipDisconnectedProvider: "{provider} 서버에 연결되어 있지 않습니다. 클릭하여 동기화 설정으로 이동합니다."
+    tooltipSyncing: "현재 클라우드 저장소와 동기화가 진행 중입니다."
+    goToSettings: "클라우드 동기화 설정 바로가기"
+  aiOptions:
+    title: AI 자동 처리 옵션
+    autoSummarize: 자동 요약
+    autoSummarizeTooltip: "북마크 추가 시 본문 텍스트를 분석하여 2~3줄 요약을 자동 생성합니다."
+    autoTags: 자동 태그
+    autoTagsTooltip: "북마크 추가 시 문서의 핵심 키워드를 해시태그 형태로 자동 추출합니다."
+    autoFolder: 자동 폴더
+    autoFolderTooltip: "북마크 추가 시 기존 폴더 구조를 파악하여 적합한 폴더로 자동 분류합니다."
+    notConfiguredTooltip: "AI API 키 또는 모델이 설정되지 않았습니다. 관리 페이지의 AI 설정 탭에서 구성하세요."
+    noProvider: "AI 제공자 미선택"
+    configureProvider: "AI 설정 바로가기"
+    goToSettings: "AI 설정 바로가기"
 
 # ── Shared Components ──
 common:
@@ -385,16 +410,15 @@ folders:
     pendingCount: "{count}건 대기 중"
     intro: "AI가 다른 북마크 위치(예: 북마크바 ↔ 기타 북마크)에 있는 폴더로 배치를 제안했습니다. 각 항목의 배치 방식을 선택해 주세요."
     quickSelect: 일괄 선택
-    allCreateHere: 모두 현재 위치에 새 폴더 생성
     allMoveRecommended: 모두 추천 위치로 이동
+    allCreateHere: 모두 현재 위치에 새 폴더 생성
     allSkip: 모두 건너뛰기
     currentLocation: 현재 위치
     suggestedLocation: AI 제안 위치
-    choiceCreateHere: 현재 위치에 새 폴더 생성
-    defaultBadge: 기본값
-    choiceCreateHereDesc: "현재 루트({root}) 하위에 '{path}' 폴더를 생성하여 이동합니다."
     choiceMoveRecommended: 추천 위치로 이동
     choiceMoveRecommendedDesc: "추천 루트({root})의 '{path}' 폴더로 이동합니다."
+    choiceCreateHere: 현재 위치에 새 폴더 생성
+    choiceCreateHereDesc: "현재 루트({root}) 하위에 '{path}' 폴더를 생성하여 이동합니다."
     choiceSkip: 건너뛰기
     choiceSkipDesc: 폴더를 이동하지 않고 현재 위치를 그대로 유지합니다.
     apply: 적용하기
@@ -618,6 +642,7 @@ aiSettings:
   modelsLoading: 모델 목록을 불러오는 중이거나 엔드포인트를 확인해주세요. 모델명을 직접 입력할 수도 있습니다.
   modelsLoadedToast: "{count}개 모델을 불러왔습니다. 사용할 모델을 선택하세요."
   fetchFailed: 사용 가능한 모델 목록을 가져오지 못했습니다.
+  endpointConnectFailed: 서버에 연결할 수 없습니다. 서버 실행 여부와 URL을 확인하세요.
   saved: AI 설정이 저장되었습니다.
   saveFailed: "AI 설정 저장 실패: {error}"
   autoSummarizeTitle: 자동 요약 생성
@@ -674,6 +699,7 @@ sync:
   lastSyncTime: 마지막 동기화
   syncNow: 지금 동기화
   loadStateFailed: 동기화 상태 로드 실패
+  cooldown: 잠시 후 다시 시도해주세요.
 
 syncWidget:
   never: 동기화 이력 없음

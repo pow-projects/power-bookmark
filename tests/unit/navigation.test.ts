@@ -147,6 +147,23 @@ describe('Management Navigation & Backward Compatibility', () => {
         '/management.html?tab=settings&section=sync'
       );
     });
+
+    it('resets activeSection to archive when navigating from a settings sub-section to another tab and back to settings', () => {
+      // 1. Initial state: user visited settings tab with sync section (?tab=settings&section=sync)
+      let state = parseNavigationState('?tab=settings&section=sync');
+      expect(state.activeTab).toBe('settings');
+      expect(state.activeSection).toBe('sync');
+
+      // 2. User clicks another tab in management page (e.g. bookmarks or stats)
+      state = parseNavigationState('?tab=bookmarks');
+      expect(state.activeTab).toBe('bookmarks');
+      expect(state.activeSection).toBe('archive');
+
+      // 3. User clicks Settings again (?tab=settings without section)
+      state = parseNavigationState('?tab=settings');
+      expect(state.activeTab).toBe('settings');
+      expect(state.activeSection).toBe('archive');
+    });
   });
 
   describe('SettingsContainer Single Page Layout & Section Anchoring', () => {

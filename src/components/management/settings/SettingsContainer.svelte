@@ -7,14 +7,37 @@
 
   export let initialSection: 'archive' | 'sync' | 'ai' = 'archive';
 
+  let containerEl: HTMLElement | null = null;
   let activeSection: 'archive' | 'sync' | 'ai' = initialSection;
+  let prevSection: 'archive' | 'sync' | 'ai' = initialSection;
   let autoSaveStatus: 'idle' | 'saving' | 'saved' = 'idle';
   let autoSaveResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  $: if (initialSection && initialSection !== prevSection) {
+    prevSection = initialSection;
+    scrollToSection(initialSection);
+    if (initialSection === 'ai' || initialSection === 'sync') {
+      const targetId = initialSection === 'ai' ? 'ai-settings-section' : 'cloud-sync-section';
+      setTimeout(() => {
+        if (!containerEl || !containerEl.isConnected) return;
+        const el = containerEl.querySelector('#' + targetId) || document.getElementById(targetId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
+    }
+  }
 
   onMount(async () => {
     if (initialSection && initialSection !== 'archive') {
       await tick();
       scrollToSection(initialSection);
+      if (initialSection === 'ai' || initialSection === 'sync') {
+        const targetId = initialSection === 'ai' ? 'ai-settings-section' : 'cloud-sync-section';
+        setTimeout(() => {
+          if (!containerEl || !containerEl.isConnected) return;
+          const el = containerEl.querySelector('#' + targetId) || document.getElementById(targetId);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      }
     }
   });
 
@@ -36,7 +59,7 @@
       ? 'cloud-sync-section'
       : 'ai-settings-section';
 
-    const el = document.getElementById(targetId);
+    const el = containerEl ? (containerEl.querySelector('#' + targetId) || document.getElementById(targetId)) : document.getElementById(targetId);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -48,7 +71,7 @@
   }
 </script>
 
-<div class="settings-container">
+<div class="settings-container" bind:this={containerEl}>
   <div class="settings-header-row">
     <div class="settings-nav">
       <button
@@ -174,6 +197,10 @@
     display: flex;
     flex-direction: column;
     gap: 2rem;
+  }
+
+  .settings-content :global(.settings-section) {
+    scroll-margin-top: 4.5rem;
   }
 
   .section-divider {

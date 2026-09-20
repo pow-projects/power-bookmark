@@ -88,7 +88,7 @@ describe('ActionButtons.svelte (v2 registered entry)', () => {
     expect(deleteSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('disables primary while isArchiving (enqueue busy) — no spinner text (R5)', async () => {
+  it('disables primary and displays loading spinner while isArchiving is true', async () => {
     new ActionButtons({
       target,
       props: { hasArchive: false, isArchiving: true }
@@ -96,9 +96,8 @@ describe('ActionButtons.svelte (v2 registered entry)', () => {
 
     const primary = document.querySelectorAll('button')[0];
     expect(primary.disabled).toBe(true);
-    // v2: Button spinner removed — progress is displayed in status line/toolbar badge
-    expect(primary.textContent).not.toContain('저장 중...');
-    expect(primary.querySelector('.spinner, [class*="spin"]')).toBeNull();
+    expect(primary.textContent).toContain('저장 중');
+    expect(primary.querySelector('.spinner, [class*="spin"]')).not.toBeNull();
   });
 
   it('shows archive success stamp (check + 저장 완료) and disables both buttons', async () => {

@@ -126,11 +126,11 @@
       <div class="modal-actions-top">
         <span class="quick-select-label">{i18n.t('folders.crossRoot.quickSelect')}:</span>
         <div class="bulk-actions">
-          <button type="button" class="btn btn-secondary btn-xs" on:click={() => setAll('create-here')}>
-            <Icon name="folder-plus" size={12} /> {i18n.t('folders.crossRoot.allCreateHere')}
-          </button>
           <button type="button" class="btn btn-secondary btn-xs" on:click={() => setAll('move-recommended')}>
             <Icon name="folder" size={12} /> {i18n.t('folders.crossRoot.allMoveRecommended')}
+          </button>
+          <button type="button" class="btn btn-secondary btn-xs" on:click={() => setAll('create-here')}>
+            <Icon name="folder-plus" size={12} /> {i18n.t('folders.crossRoot.allCreateHere')}
           </button>
           <button type="button" class="btn btn-secondary btn-xs" on:click={() => setAll('skip')}>
             <Icon name="x" size={12} /> {i18n.t('folders.crossRoot.allSkip')}
@@ -176,7 +176,27 @@
 
             <!-- 3-Choice Selection -->
             <div class="choice-group">
-              <!-- Choice 1: create-here -->
+              <!-- Choice 1: move-recommended -->
+              <label class="choice-option {choices[item.bookmarkId] === 'move-recommended' ? 'selected' : ''}">
+                <input
+                  type="radio"
+                  name="choice-{item.bookmarkId}"
+                  value="move-recommended"
+                  checked={choices[item.bookmarkId] === 'move-recommended'}
+                  on:change={() => selectChoice(item.bookmarkId, 'move-recommended')}
+                />
+                <div class="choice-content">
+                  <div class="choice-title">
+                    <Icon name="folder" size={14} />
+                    <span>{i18n.t('folders.crossRoot.choiceMoveRecommended')}</span>
+                  </div>
+                  <div class="choice-desc">
+                    {i18n.t('folders.crossRoot.choiceMoveRecommendedDesc', { root: formatRootBadge(item.suggestedRoot), path: item.suggestedFolderPath || item.cleanPath })}
+                  </div>
+                </div>
+              </label>
+
+              <!-- Choice 2: create-here -->
               <label class="choice-option {choices[item.bookmarkId] === 'create-here' ? 'selected' : ''}">
                 <input
                   type="radio"
@@ -192,29 +212,6 @@
                   </div>
                   <div class="choice-desc">
                     {i18n.t('folders.crossRoot.choiceCreateHereDesc', { root: formatRootBadge(item.currentRoot), path: item.cleanPath })}
-                  </div>
-                </div>
-              </label>
-
-              <!-- Choice 2: move-recommended -->
-              <label class="choice-option {choices[item.bookmarkId] === 'move-recommended' ? 'selected' : ''}">
-                <input
-                  type="radio"
-                  name="choice-{item.bookmarkId}"
-                  value="move-recommended"
-                  checked={choices[item.bookmarkId] === 'move-recommended'}
-                  on:change={() => selectChoice(item.bookmarkId, 'move-recommended')}
-                />
-                <div class="choice-content">
-                  <div class="choice-title">
-                    <Icon name="folder" size={14} />
-                    <span>{i18n.t('folders.crossRoot.choiceMoveRecommended')}</span>
-                    {#if choices[item.bookmarkId] === 'move-recommended'}
-                      <span class="badge-default font-mono">{i18n.t('folders.crossRoot.defaultBadge')}</span>
-                    {/if}
-                  </div>
-                  <div class="choice-desc">
-                    {i18n.t('folders.crossRoot.choiceMoveRecommendedDesc', { root: formatRootBadge(item.suggestedRoot), path: item.suggestedFolderPath || item.cleanPath })}
                   </div>
                 </div>
               </label>
@@ -494,14 +491,6 @@
     color: var(--text-primary);
   }
 
-  .badge-default {
-    font-size: 0.6rem;
-    padding: 0.1rem 0.35rem;
-    border-radius: var(--radius-sm);
-    background: var(--color-primary);
-    color: var(--color-on-primary);
-    font-weight: 600;
-  }
 
   .choice-desc {
     font-size: 0.75rem;

@@ -12,6 +12,41 @@
     if (currentModel) return currentModel;
     return '';
   }
+
+  export function isNetworkOrEndpointError(errorMsg: string): boolean {
+    if (!errorMsg) return false;
+    const lower = errorMsg.toLowerCase();
+    return (
+      lower.includes('failed to fetch') ||
+      lower.includes('networkerror') ||
+      lower.includes('fetch failed') ||
+      lower.includes('connection refused') ||
+      lower.includes('econnrefused') ||
+      lower.includes('enotfound') ||
+      lower.includes('net::err_') ||
+      lower.includes('timeout') ||
+      lower.includes('abort') ||
+      lower.includes('404') ||
+      lower.includes('500') ||
+      lower.includes('502') ||
+      lower.includes('503') ||
+      lower.includes('504')
+    );
+  }
+
+  export function isAuthOrKeyError(errorMsg: string): boolean {
+    if (!errorMsg) return false;
+    const lower = errorMsg.toLowerCase();
+    return (
+      lower.includes('api key') ||
+      lower.includes('apikey') ||
+      lower.includes('401') ||
+      lower.includes('403') ||
+      lower.includes('unauthorized') ||
+      lower.includes('forbidden') ||
+      lower.includes('invalid_api_key')
+    );
+  }
 </script>
 
 <script lang="ts">
@@ -103,6 +138,45 @@
   $: isApiKeyValid = isCustomOrLocalEndpoint || validateApiKeyFormat(aiProvider, aiApiKey, aiCustomEndpoint);
   $: isModelEnabled = aiProvider !== 'none' && isApiKeyValid;
   $: hasEndpointField = selectedProviderDef?.isLocal || selectedProviderDef?.id === 'custom' || !!selectedProviderDef?.defaultEndpoint;
+  $: isEndpointError = isNetworkOrEndpointError(fetchErrorMessage);
+  $: isKeyError = isAuthOrKeyError(fetchErrorMessage);
+
+  $: endpointErrorMessage = (() => {
+    if (!fetchErrorMessage) return '';
+    if (hasEndpointField) {
+      if (isEndpointError) {
+        const lower = fetchErrorMessage.toLowerCase();
+        if (
+          lower.includes('failed to fetch') ||
+          lower.includes('networkerror') ||
+          lower.includes('fetch failed') ||
+          lower.includes('connection refused') ||
+          lower.includes('econnrefused')
+        ) {
+          return i18n.t('aiSettings.endpointConnectFailed');
+        }
+        return fetchErrorMessage;
+      }
+      if (selectedProviderDef?.isLocal && !isKeyError) {
+        return fetchErrorMessage;
+      }
+    }
+    return '';
+  })();
+
+  $: apiKeyErrorMessage = (() => {
+    if (!fetchErrorMessage) return '';
+    if (hasEndpointField && isEndpointError) {
+      return '';
+    }
+    if (isKeyError || !hasEndpointField) {
+      return fetchErrorMessage;
+    }
+    if (!selectedProviderDef?.isLocal && !isEndpointError) {
+      return fetchErrorMessage;
+    }
+    return '';
+  })();
 
   $: filteredModels = isTypingQuery && aiModel.trim()
     ? modelsList.filter((m) => {
@@ -276,7 +350,10 @@
       } else {
         modelsList = getModelList(aiProvider);
       }
-      if (isApiKeyValid && (aiApiKey || isLocalOrCustom)) {
+      const pDef = getProvider(aiProvider);
+      const isLocal = pDef?.isLocal || pDef?.id === 'custom';
+      const isValidKey = isLocal || validateApiKeyFormat(aiProvider, aiApiKey, aiCustomEndpoint);
+      if (isValidKey && (aiApiKey || isLocal)) {
         autoFetchModels(false);
       }
     } else {
@@ -288,7 +365,10 @@
 
   async function autoFetchModels(silent = false) {
     if (aiProvider === 'none') return;
-    if (!isModelEnabled) return;
+    const pDef = getProvider(aiProvider);
+    const isLocal = pDef?.isLocal || pDef?.id === 'custom';
+    const isValidKey = isLocal || validateApiKeyFormat(aiProvider, aiApiKey, aiCustomEndpoint);
+    if (!isValidKey) return;
 
     isFetchingModels = true;
     fetchErrorMessage = '';
@@ -417,8 +497,8 @@
             on:input={handleKeyOrEndpointInput}
             placeholder={selectedProviderDef?.defaultEndpoint || DEFAULT_ENDPOINTS[aiProvider] || 'http://localhost:11434/v1'}
           />
-          {#if selectedProviderDef?.isLocal && fetchErrorMessage}
-            <span class="form-error">{fetchErrorMessage}</span>
+          {#if endpointErrorMessage}
+            <span class="form-error">{endpointErrorMessage}</span>
           {/if}
         </div>
       {/if}
@@ -453,8 +533,8 @@
               ? i18n.t('aiSettings.apiKeyOptionalPlaceholder')
               : i18n.t('aiSettings.apiKeyPlaceholder', { provider: getProviderDisplayName(selectedProviderDef) })}
           />
-          {#if fetchErrorMessage}
-            <span class="form-error">{fetchErrorMessage}</span>
+          {#if apiKeyErrorMessage}
+            <span class="form-error">{apiKeyErrorMessage}</span>
           {/if}
         </div>
       {/if}
@@ -577,15 +657,7 @@
         <ToggleSwitch bind:checked={autoFolder} on:change={triggerSave} />
       </div>
 
-      <div class="setting-divider"></div>
 
-      <div class="setting-row">
-        <div class="setting-info">
-          <span class="setting-title">{i18n.t('aiSettings.autoOnBrowserBookmarkTitle')}</span>
-          <span class="setting-description">{i18n.t('aiSettings.autoOnBrowserBookmarkDesc')}</span>
-        </div>
-        <ToggleSwitch bind:checked={autoOnBrowserBookmark} on:change={triggerSave} />
-      </div>
 
       <div class="setting-divider"></div>
 

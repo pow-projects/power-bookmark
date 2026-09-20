@@ -1,126 +1,106 @@
 <script lang="ts">
   /**
-   * PowerBookmark Popup — "Registered Item Card" (v2)
+   * PowerBookmark Popup — Modern Options & Direct Archive Card
    *
-   * Clicking extension button = page is already automatically registered, so popup is not a "creation form"
-   * but a management card in REGISTERED state. UI state model:
-   *   LOADING   : loaded=false → ribbon loading bar + mono LOADING ENTRY…
-   *   REGISTERED: localBookmarkId!==null → autosave form (+ pipeline status line only during progress/error)
-   *   Completed states (REGISTERED/ARCHIVED/AI done) are not reiterated with stamps — buttons/forms already express them.
-   *   FAILED    : auto-save failed / no page info → slim error banner + [Save Again] (R2 fallback)
+   * Displays:
+   *   - Header: Wordmark & close button
+   *   - Options Card: Cloud Sync status badge + AI automation toggles (Summarize, Tags, Folder) with hover tooltips
+   *   - Unregistered: Single prominent [Save Archive] button (creates bookmark + AI + archive in background with toolbar spinner)
+   *   - Registered: Pipeline status (when active) + [View/Save Archive] & [Delete] buttons
+   *   - Footer: [Open Management]
    */
   import { onMount, onDestroy } from 'svelte';
   import type { Bookmark } from '../../lib/db';
   import { BookmarkManager } from '../../lib/bookmarks/bookmark-manager';
-  import { isSameFolderLocation } from '../../lib/bookmarks/folder-utils';
-  import { isAiConfigured } from '../../lib/ai/ai-summarizer';
+  import { isAiConfigured, getAiSettings } from '../../lib/ai/ai-summarizer';
   import type { ExtractedPagePayload, FolderInfo } from '../../lib/ai/types';
   import { buildArchiveBannerHtml } from '../../lib/archive/archive-viewer';
   import { getCloudArchiveIndexCache } from '../../lib/archive/archive-cloud';
+  import { getArchiveCaptureState, STALE_MS } from '../../lib/archive/archive-capture-state';
   import db from '../../lib/db';
-  import BookmarkForm from '../../components/popup/BookmarkForm.svelte';
+  import PopupOptionsCard from '../../components/popup/PopupOptionsCard.svelte';
   import ActionButtons from '../../components/popup/ActionButtons.svelte';
   import Icon from '../../components/shared/Icon.svelte';
-  import { setTaskIndicator } from '../../lib/bookmarks/badge-manager';
   import { formatApproximateAiError } from '../../lib/ai/ai-error-formatter';
+  import { initSyncStatusStore, syncStatus } from '../../lib/sync/sync-status-store';
 
   // Tab data
   let currentTab: chrome.tabs.Tab | null = null;
-
-  // Form state
   let title = '';
   let url = '';
-  let description = '';
-  let folderId = '';
   let folders: FolderInfo[] = [];
   let hasArchive = false;
   let loaded = false;
   let isEditMode = false;
-  let localBookmarkId: number | null = null; // Bookmark record ID (for deletion)
+  let localBookmarkId: number | null = null;
+
+  // AI automation options & status
+  let aiProvider: string = 'none';
+  let autoSummarize: boolean = false;
+  let autoTags: boolean = true;
+  let autoFolder: boolean = true;
+  let aiConfigured: boolean = false;
+  let unsubscribeSync: (() => void) | null = null;
 
   // State flags
   let isAdding = false;
   let isArchiving = false;
-  let isSaving = false;
   let isDeleting = false;
-  let successAction: 'archive' | 'delete' | 'save' | null = null;
+  let successAction: 'archive' | 'delete' | null = null;
   let errorMessage: string | null = null;
 
-  // v2 — Registered item card state
+  // Pipeline status
   let archiveStatus: 'none' | 'in_progress' | 'archived' = 'none';
   let aiStatus: NonNullable<Bookmark['aiStatus']> = 'none';
   let aiAttempts: number | undefined = undefined;
   let aiError: string | undefined = undefined;
-  let saveIndicator: 'idle' | 'saving' = 'idle'; // Autosave indicator (no completed state display — in-progress only)
-  let archiveInSince: number | null = null; // in_progress optimistic timing (for fallback timeout)
+  let archiveInSince: number | null = null;
 
-  // URL duplicate detection result (set in onMount — used for deletion propagation syncId)
+  // Duplicate detection result
   let duplicate: Bookmark | null = null;
 
-  // Autosave debounce
-  let autosaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // Polling & listeners
   let statusPollTimer: ReturnType<typeof setInterval> | null = null;
   let storageListener: ((changes: Record<string, any>, areaName: string) => void) | null = null;
-  let lastSavedTitle = '';
-  let lastSavedDescription = '';
-  let lastSavedFolderId = '';
 
   onMount(async () => {
     try {
-      currentTab = await getActiveTab();
-      if (!currentTab) return; // finally → end LOADING, FAILED state (no page info)
+      unsubscribeSync = initSyncStatusStore();
 
-      // Load existing bookmark data (find duplicate by URL)
+      // Load AI settings and configuration status
+      try {
+        const aiSettings = await getAiSettings();
+        aiProvider = aiSettings.provider || 'none';
+        autoSummarize = aiSettings.autoSummarize;
+        autoTags = aiSettings.autoTags;
+        autoFolder = aiSettings.autoFolder;
+        aiConfigured = await isAiConfigured();
+      } catch (e) {
+        console.warn('[Popup] Failed to load AI settings:', e);
+      }
+
+      currentTab = await getActiveTab();
+      if (!currentTab) return;
+
       url = currentTab.url || '';
-      title = currentTab.title || '';
+      title = currentTab.title || url;
 
       if (url) {
         duplicate = await BookmarkManager.findDuplicate(url);
       }
 
       if (duplicate) {
-        // Existing bookmark - enter edit mode
         isEditMode = true;
         localBookmarkId = duplicate.id;
         title = duplicate.title || currentTab.title || '';
         url = duplicate.url || currentTab.url || '';
-        description = duplicate.description || '';
-
-        // [t_7539944f] loadFoldersWithRetry: 1 retry (200ms) to prevent initialization timing race
-        const folderResult = await loadFoldersWithRetry();
-        folders = folderResult.folders;
-        if (!folderResult.success) {
-          errorMessage = i18n.t('popup.error.foldersLoadFailed');
-        }
-
-        // Set folderId based on duplicate.folderPath using isSameFolderLocation
-        const dupFolderPath = duplicate.folderPath;
-        if (dupFolderPath) {
-          const normalizedTarget = dupFolderPath.replace(/^\//, '').toLowerCase();
-          const matchedFolder = folders.find(f => {
-            return isSameFolderLocation(f.path, dupFolderPath);
-          });
-          if (matchedFolder) {
-            folderId = matchedFolder.id;
-          } else {
-            // No folder found matching the stored path - leave as default (uncategorized)
-            console.warn(`[Popup] No folder matches saved path: ${dupFolderPath}`);
-          }
-        } else {
-          console.log('[Popup] Duplicate bookmark has no folderPath, using default');
-        }
-      } else {
-        // New bookmark - load available folders for selection
-        const folderResult = await loadFoldersWithRetry();
-        folders = folderResult.folders;
-        if (!folderResult.success) {
-          errorMessage = i18n.t('popup.error.foldersLoadFailed');
-        }
       }
 
-      // Set default values
-      if (url && !title) title = url;
-      if (folderId === '' && folders.length > 0) folderId = folders[0].id;
+      const folderResult = await loadFoldersWithRetry();
+      folders = folderResult.folders;
+      if (!folderResult.success) {
+        errorMessage = i18n.t('popup.error.foldersLoadFailed');
+      }
     } catch (error) {
       console.error('Popup onMount error:', error);
       errorMessage = i18n.t('popup.error.pageLoadFailed');
@@ -128,13 +108,22 @@
       loaded = true;
     }
 
-    // [t_645c7d9b] Initialize pipeline state for registered item + 2-second polling while popup is open
+    // Initialize pipeline state for registered item + polling
     if (localBookmarkId !== null) {
       if (!isEditMode) isEditMode = true;
       try {
         const archived = await checkHasArchive(localBookmarkId, duplicate?.syncId);
         hasArchive = archived;
-        archiveStatus = archived ? 'archived' : (archiveStatus === 'in_progress' ? 'in_progress' : 'none');
+        const captureState = await getArchiveCaptureState();
+        const isCapturing = captureState?.bookmarkId === localBookmarkId && (Date.now() - captureState.startedAt < STALE_MS);
+        if (archived) {
+          archiveStatus = 'archived';
+        } else if (isCapturing || archiveStatus === 'in_progress') {
+          archiveStatus = 'in_progress';
+          archiveInSince = captureState?.startedAt ?? Date.now();
+        } else {
+          archiveStatus = 'none';
+        }
         const existing = await db.bookmarks.get(localBookmarkId).catch(() => undefined);
         aiStatus = (existing?.aiStatus ?? 'none') as NonNullable<Bookmark['aiStatus']>;
         aiAttempts = existing?.aiAttempts;
@@ -144,11 +133,23 @@
       }
       startStatusPolling();
 
-      // Immediately react to AI analysis updates while popup is open
       if (typeof browser !== 'undefined' && browser.storage?.onChanged) {
         storageListener = (changes, area) => {
-          if (area === 'local' && (changes['ai_analysis_last_update'] || changes['ai_analysis_error'])) {
-            void pollStatus();
+          if (area === 'local') {
+            if (changes['archive_capture_error']?.newValue?.bookmarkId === localBookmarkId) {
+              errorMessage = i18n.t('popup.error.archiveSaveFailed', {
+                error: changes['archive_capture_error'].newValue.error || i18n.t('common.unknownError')
+              });
+            }
+            if (
+              changes['ai_analysis_last_update'] ||
+              changes['ai_analysis_error'] ||
+              changes['archive_capture_state'] ||
+              changes['archive_capture_last_update'] ||
+              changes['archive_capture_error']
+            ) {
+              void pollStatus();
+            }
           }
         };
         try {
@@ -156,7 +157,6 @@
         } catch { /* ignore */ }
       }
 
-      // Re-check hasArchive after cloud index refresh (maintain existing logic)
       browser.runtime.sendMessage({ type: 'ARCHIVE_INDEX_REFRESH' }).then(async () => {
         if (localBookmarkId === null) return;
         const archived = await checkHasArchive(localBookmarkId, duplicate?.syncId);
@@ -168,7 +168,10 @@
 
   onDestroy(() => {
     stopStatusPolling();
-    if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
+    if (unsubscribeSync) {
+      unsubscribeSync();
+      unsubscribeSync = null;
+    }
     if (storageListener && typeof browser !== 'undefined' && browser.storage?.onChanged) {
       try {
         browser.storage.onChanged.removeListener(storageListener);
@@ -177,9 +180,21 @@
     }
   });
 
-  /**
-   * [t_7539944f] Load folders: on failure, retry once after 200ms.
-   */
+  async function handleToggleSummarize(checked: boolean) {
+    autoSummarize = checked;
+    await db.settings.put({ key: 'ai_auto_summarize', value: checked });
+  }
+
+  async function handleToggleTags(checked: boolean) {
+    autoTags = checked;
+    await db.settings.put({ key: 'ai_auto_tags', value: checked });
+  }
+
+  async function handleToggleFolder(checked: boolean) {
+    autoFolder = checked;
+    await db.settings.put({ key: 'ai_auto_folder', value: checked });
+  }
+
   async function loadFoldersWithRetry(): Promise<{ folders: FolderInfo[]; success: boolean }> {
     try {
       const list = await BookmarkManager.getFolders();
@@ -239,10 +254,6 @@
     return null;
   }
 
-  /**
-   * Extract full HTML source from tab (for archiving) — revived v1 local function (corrects v2 importing
-   * non-existent extractTabHtml from page-capture). 1500ms timeout.
-   */
   async function extractTabHtml(tabId: number): Promise<{ html: string; iframeSources: Record<string, string> }> {
     try {
       const sendPromise = browser.tabs.sendMessage(tabId, { type: 'EXTRACT_HTML' });
@@ -257,9 +268,6 @@
     }
   }
 
-  /**
-   * Extract ExtractedPagePayload from tab (for background AI analysis) - 1000ms timeout
-   */
   async function extractPagePayload(): Promise<ExtractedPagePayload | null> {
     if (!currentTab || !currentTab.id) return null;
     try {
@@ -281,37 +289,23 @@
     }
   }
 
-  /**
-   * Delegates AI analysis of saved bookmark to background service worker.
-   * Saving completes successfully even if auto-analysis is disabled or payload extraction fails.
-   * - aiStatus='pending' is recorded **only immediately before actual delegation occurs** (prevents
-   *   orphan pending spinners on management page if payload extraction fails or popup closes).
-   * - Returns success status (caller determines whether pending was recorded).
-   */
   async function dispatchBackgroundAiAnalysis(bookmarkId: number): Promise<boolean> {
     try {
-      const autoSummarize = (await db.settings.get('ai_auto_summarize'))?.value === true;
-      const autoTags = (await db.settings.get('ai_auto_tags'))?.value ?? (await db.settings.get('ai_auto_categorize'))?.value ?? true;
-      const autoFolder = (await db.settings.get('ai_auto_folder'))?.value ?? (await db.settings.get('ai_auto_categorize'))?.value ?? true;
-      // Skip delegation if no auto-analysis options are enabled
       if (!autoSummarize && !autoTags && !autoFolder) return false;
-      // Skip delegation if AI provider/API key is not configured (no pending status -> no error badge/toast)
-      if (!(await isAiConfigured())) return false;
+      if (!aiConfigured) return false;
       let payload = await extractPagePayload();
       if (!payload) {
         payload = {
           title: title || currentTab?.title || '',
           url: url || currentTab?.url || '',
-          metaDescription: description || '',
+          metaDescription: '',
           content: '',
           textContent: '',
           extractionType: 'basic',
           text: ''
         };
       }
-      // Record pending only immediately before delegation — prevents orphan pending if subsequent exception occurs
       await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'pending' });
-      // Single combined AI request per bookmark (summary/tags/folder all at once) — single delegation to background
       await browser.runtime.sendMessage({
         type: 'AI_ANALYZE_BOOKMARK',
         bookmarkId,
@@ -323,19 +317,14 @@
       });
       return true;
     } catch (e) {
-      // Analysis delegation failure does not block saving (save is already complete)
       console.error('Failed to dispatch background AI analysis:', e);
-      // If exception occurs after recording pending, restore to none to avoid orphan spinner
       try {
         await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'none' });
-      } catch {
-        // Ignore restore failure
-      }
+      } catch {}
       return false;
     }
   }
 
-  // [t_645c7d9b] Check archive existence — parallel local + cloud check
   async function checkHasArchive(bookmarkId: number, syncId?: string): Promise<boolean> {
     try {
       const results = await Promise.all([
@@ -352,8 +341,6 @@
             }
             if (!id) return false;
             const index = await getCloudArchiveIndexCache();
-            // Cloud index entries do not have a 'status' field (ArchiveIndexEntry in archive-index.ts).
-            // Archive exists = syncId matches + non-tombstone (deleted) entry (same semantics as management list).
             return index.some(e => e.syncId === id && !e.deleted);
           } catch { return false; }
         })()
@@ -365,20 +352,11 @@
     }
   }
 
-  /**
-   * Optimistic: mark as save in-progress immediately upon enqueue (= message delivery complete).
-   * Progress continues outside popup (toolbar badge + status line polling).
-   */
   function markArchiveInProgress() {
     archiveStatus = 'in_progress';
     archiveInSince = Date.now();
   }
 
-  /**
-   * 2-second polling of background pipeline state while popup is open (local Dexie — lightweight).
-   * Archive: local archivedPages + cloud index cache.
-   * AI: bookmarks.aiStatus.
-   */
   function startStatusPolling() {
     stopStatusPolling();
     refreshPipelineStatus().catch(() => {});
@@ -394,6 +372,10 @@
     }
   }
 
+  async function pollStatus() {
+    await refreshPipelineStatus();
+  }
+
   async function refreshPipelineStatus() {
     if (localBookmarkId === null) return;
     const archived = await checkHasArchive(localBookmarkId);
@@ -401,14 +383,20 @@
       hasArchive = true;
       archiveStatus = 'archived';
       archiveInSince = null;
-    } else if (archiveStatus === 'in_progress') {
-      // Maintain optimistic "saving…" until background pipeline actually registers (60s fallback)
-      if (archiveInSince !== null && Date.now() - archiveInSince > 60_000) {
-        archiveStatus = 'none';
-        archiveInSince = null;
-      }
     } else {
-      archiveStatus = 'none';
+      const captureState = await getArchiveCaptureState();
+      const isCapturing = captureState?.bookmarkId === localBookmarkId && (Date.now() - captureState.startedAt < STALE_MS);
+      if (isCapturing) {
+        archiveStatus = 'in_progress';
+        archiveInSince = captureState.startedAt;
+      } else if (archiveStatus === 'in_progress') {
+        if (archiveInSince !== null && Date.now() - archiveInSince > 60_000) {
+          archiveStatus = 'none';
+          archiveInSince = null;
+        }
+      } else {
+        archiveStatus = 'none';
+      }
     }
 
     try {
@@ -416,88 +404,7 @@
       aiStatus = (existing?.aiStatus ?? 'none') as NonNullable<Bookmark['aiStatus']>;
       aiAttempts = existing?.aiAttempts;
       aiError = existing?.aiError;
-    } catch {
-      // DB not ready, etc. — retry on next poll
-    }
-  }
-
-  function setSaveState(state: 'idle' | 'saving') {
-    saveIndicator = state;
-  }
-
-  // Debounced autosave for edit mode (allowed continuously unless moving folder or saving — R5)
-  $: if (isEditMode && localBookmarkId !== null) {
-    if (title !== lastSavedTitle || description !== lastSavedDescription || folderId !== lastSavedFolderId) {
-      const snapshot = { t: title, d: description, f: folderId };
-      if (autosaveDebounceTimer) clearTimeout(autosaveDebounceTimer);
-      autosaveDebounceTimer = setTimeout(() => {
-        autoSaveEditBookmark(snapshot.t, snapshot.d, snapshot.f).then(ok => {
-          if (!ok) {
-            errorMessage = i18n.t('popup.error.autoSave');
-          }
-        });
-      }, 500);
-    } else if (autosaveDebounceTimer) {
-      clearTimeout(autosaveDebounceTimer);
-      autosaveDebounceTimer = null;
-    }
-  }
-
-  /**
-   * Edit mode autosave — only executes if the current values match the snapshot.
-   * This prevents stale saves when the user has continued typing.
-   */
-  async function autoSaveEditBookmark(savedTitle: string, savedDescription: string, savedFolderId: string): Promise<boolean> {
-    // Guard: skip if already in edit mode and values haven't changed since snapshot
-    if (!isEditMode || localBookmarkId === null || isDeleting || successAction) return false;
-    if (title !== savedTitle || description !== savedDescription || folderId !== savedFolderId) return false;
-    if (isSaving) return false;
-
-    isSaving = true;
-    setSaveState('saving');
-    try {
-      const existing = await db.bookmarks.get(localBookmarkId);
-      // Only update DB if description actually changed
-      const dbChanged = existing && existing.description !== savedDescription;
-      const titleChanged = existing && existing.title !== savedTitle;
-      if (dbChanged || titleChanged) {
-        await BookmarkManager.updateBookmark(localBookmarkId, {
-          ...(titleChanged ? { title: savedTitle } : {}),
-          ...(dbChanged ? { description: savedDescription } : {})
-        });
-        // Update in-memory copy too
-        if (existing) {
-          existing.title = savedTitle;
-          existing.description = savedDescription;
-        }
-      }
-
-      // Track last successful save to prevent re-triggering
-      lastSavedTitle = savedTitle;
-      lastSavedDescription = savedDescription;
-      lastSavedFolderId = savedFolderId;
-
-      // Move folder in browser API if folder changed
-      if (folderId !== '' && existing?.bookmarkId) {
-        try {
-          const browserBookmark = await browser.bookmarks.get(existing.bookmarkId);
-          if (browserBookmark && browserBookmark.parentId !== folderId) {
-            await browser.bookmarks.move(existing.bookmarkId, { parentId: folderId });
-          }
-        } catch (e) {
-          console.warn('[Popup] Browser bookmark move failed:', e);
-        }
-      }
-
-      setSaveState('idle');
-      return true;
-    } catch (error) {
-      console.error('[Popup] Autosave edit failed:', error);
-      setSaveState('idle');
-      return false;
-    } finally {
-      isSaving = false;
-    }
+    } catch {}
   }
 
   async function handleViewArchive() {
@@ -514,27 +421,19 @@
 
   async function handleDeleteBookmark() {
     if (localBookmarkId === null || isDeleting || successAction) return;
-    if (autosaveDebounceTimer) {
-      clearTimeout(autosaveDebounceTimer);
-      autosaveDebounceTimer = null;
-    }
     const bookmarkIdToDelete = localBookmarkId;
     const syncIdToDelete: string | undefined = duplicate?.syncId;
     isDeleting = true;
     errorMessage = null;
 
     try {
-      // 0. Immediately abort ongoing AI analysis task
       try {
         if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
           browser.runtime.sendMessage({ type: 'AI_ABORT_BOOKMARK', bookmarkId: bookmarkIdToDelete }).catch(() => {});
         }
       } catch {}
 
-      // 1. Delete DB + browser bookmark + archive via BookmarkManager.removeBookmark
       await BookmarkManager.removeBookmark(bookmarkIdToDelete, syncIdToDelete);
-
-      // 2. Success — close popup
       triggerSuccess('delete');
     } catch (error: any) {
       console.error('[Popup] Delete failed:', error);
@@ -550,61 +449,32 @@
     window.close();
   }
 
-  /**
-   * FAILED state [Save Again] — R2 fallback. Reuses existing auto-creation logic.
-   */
-  async function handleRetryAdd() {
-    if (isAdding || successAction) return;
-    errorMessage = null;
-    if (!currentTab) {
-      currentTab = await getActiveTab();
-      if (currentTab) {
-        url = currentTab.url || '';
-        title = currentTab.title || url;
-      }
-    }
-    await autoAddBookmark();
+  async function handleOpenAiSettings() {
+    const aiSettingsUrl = browser.runtime.getURL('management.html?tab=settings&section=ai');
+    await browser.tabs.create({ url: aiSettingsUrl });
+    window.close();
   }
 
-  async function triggerSuccess(action?: 'archive' | 'delete' | 'save') {
-    if (action) {
-      successAction = action;
-    } else if (!successAction) {
-      successAction = 'delete';
-    }
-    // Delay so popup does not close too quickly (800ms — v2: allow time to perceive stamp)
+  async function handleOpenSyncSettings() {
+    const syncSettingsUrl = browser.runtime.getURL('management.html?tab=settings&section=sync');
+    await browser.tabs.create({ url: syncSettingsUrl });
+    window.close();
+  }
+
+  async function triggerSuccess(action: 'archive' | 'delete') {
+    successAction = action;
     setTimeout(() => {
       window.close();
     }, 800);
   }
 
-  async function handleSaveBookmark() {
-    if (isAdding || isArchiving || successAction !== null) return;
-    errorMessage = null;
-    try {
-      const id = await doAddBookmark(false);
-      if (id !== null) {
-        lastSavedTitle = title;
-        lastSavedDescription = description;
-        lastSavedFolderId = folderId;
-        await triggerSuccess('save');
-      }
-    } catch (error: any) {
-      console.error('[Popup] Save bookmark failed:', error);
-      errorMessage = i18n.t('popup.error.createFailed', { error: error.message || i18n.t('common.unknownError') });
-    }
-  }
-
   async function handleSaveAndArchive() {
-    if (isAdding || isArchiving || successAction !== null) return;
+    if (isAdding || isArchiving || archiveStatus === 'in_progress' || successAction !== null) return;
     errorMessage = null;
     isArchiving = true;
     try {
       const id = await doAddBookmark(true);
       if (id !== null && !errorMessage) {
-        lastSavedTitle = title;
-        lastSavedDescription = description;
-        lastSavedFolderId = folderId;
         await triggerSuccess('archive');
       }
     } catch (error: any) {
@@ -615,32 +485,22 @@
     }
   }
 
-  async function autoAddBookmark(): Promise<void> {
-    if (successAction || isEditMode) return;
-    try {
-      const id = await doAddBookmark();
-      if (id !== null && !errorMessage) {
-        lastSavedTitle = title;
-        lastSavedDescription = description;
-        lastSavedFolderId = folderId;
-        await initEntryPipeline(id);
-      }
-    } catch (error) {
-      console.error('[Popup] Auto add bookmark failed:', error);
-    }
-  }
-
-  /**
-   * Initialize background pipeline state + start polling on entering REGISTERED.
-   * (Shared between onMount duplicate path and autoAddBookmark path — idempotent)
-   */
   async function initEntryPipeline(bookmarkId: number, syncId?: string) {
     isEditMode = true;
     if (localBookmarkId !== bookmarkId) localBookmarkId = bookmarkId;
     try {
       const archived = await checkHasArchive(bookmarkId, syncId);
       hasArchive = archived;
-      archiveStatus = archived ? 'archived' : (archiveStatus === 'in_progress' ? 'in_progress' : 'none');
+      const captureState = await getArchiveCaptureState();
+      const isCapturing = captureState?.bookmarkId === bookmarkId && (Date.now() - captureState.startedAt < STALE_MS);
+      if (archived) {
+        archiveStatus = 'archived';
+      } else if (isCapturing || archiveStatus === 'in_progress') {
+        archiveStatus = 'in_progress';
+        archiveInSince = captureState?.startedAt ?? Date.now();
+      } else {
+        archiveStatus = 'none';
+      }
       const existing = await db.bookmarks.get(bookmarkId).catch(() => undefined);
       aiStatus = (existing?.aiStatus ?? 'none') as NonNullable<Bookmark['aiStatus']>;
     } catch (error) {
@@ -649,8 +509,8 @@
     startStatusPolling();
   }
 
-  async function doAddBookmark(forceArchive: boolean = false): Promise<number | null> {
-    if (localBookmarkId !== null && isEditMode) return localBookmarkId; // Already in edit mode
+  async function doAddBookmark(forceArchive: boolean = true): Promise<number | null> {
+    if (localBookmarkId !== null && isEditMode) return localBookmarkId;
     if (!currentTab?.id) return null;
     const effectiveUrl = url || currentTab.url;
     if (!effectiveUrl) {
@@ -661,41 +521,28 @@
     isAdding = true;
     errorMessage = null;
     try {
-      // 1. Check for duplicates using shared BookmarkManager
       const existing = await BookmarkManager.findDuplicate(effectiveUrl);
       if (existing) {
-        // Update last saved values to prevent autosave from triggering
-        lastSavedTitle = title;
-        lastSavedDescription = description;
-        lastSavedFolderId = folderId;
         localBookmarkId = existing.id;
         isEditMode = true;
         await initEntryPipeline(existing.id, existing.syncId);
         return existing.id;
       }
 
-      // 2. Create bookmark using shared BookmarkManager
-      const savedFolderId = folderId || (folders.length > 0 ? folders[0].id : undefined);
+      const defaultFolderId = folders.length > 0 ? folders[0].id : undefined;
       const bookmarkData = await BookmarkManager.createBookmark(
         effectiveUrl,
-        title,
-        savedFolderId,
-        description || undefined
+        title || effectiveUrl,
+        defaultFolderId
       );
 
-      // 3. Store local ID for later deletion
       localBookmarkId = bookmarkData.id;
       isEditMode = true;
 
-      // 3-1. If auto-analysis is enabled, delegate to background service worker (does not wait for saving).
-      //      pending record/gate handled inside dispatchBackgroundAiAnalysis (recovers f23ec34 deletion incident)
       await dispatchBackgroundAiAnalysis(bookmarkData.id);
 
-      // 4. If forceArchive or autoArchive is enabled, enqueue background pipeline immediately (optimistic)
-      //    When forceArchive is requested explicitly, rethrow error to notify caller
       try {
-        const autoArchive = (await db.settings.get('auto_archive'))?.value === true;
-        if ((forceArchive || autoArchive) && currentTab?.id) {
+        if (currentTab?.id) {
           const htmlResult = await extractTabHtml(currentTab.id).catch(() => ({ html: '', iframeSources: {} as Record<string, string> }));
           const htmlWithBanner = buildArchiveBannerHtml(htmlResult.html);
           const compress = (await db.settings.get('archive_compress'))?.value ?? true;
@@ -717,7 +564,7 @@
           if (response?.success === false || response?.ok === false) {
             throw new Error(response.error || i18n.t('popup.error.archiveStartFailed'));
           }
-          markArchiveInProgress(); // Optimistic — reflect in status line immediately on enqueue success
+          markArchiveInProgress();
         }
       } catch (e: any) {
         if (forceArchive) {
@@ -725,7 +572,6 @@
           return bookmarkData.id;
         }
         console.warn('[Popup] Failed to start background archive processing:', e);
-        // Ignore - non-critical
       }
 
       return bookmarkData.id;
@@ -738,30 +584,13 @@
     }
   }
 
-  // Handle 'createFolder' event from BookmarkForm: refresh list and select after actual folder creation
-  async function handleCreateFolder(e: CustomEvent<{ title: string; parentId?: string }>) {
-    const { title: folderName, parentId } = e.detail;
-    try {
-      const created = await BookmarkManager.createFolder(folderName, parentId || undefined);
-      const folderResult = await loadFoldersWithRetry();
-      folders = folderResult.folders;
-      folderId = created.id;
-      errorMessage = null;
-    } catch (error: any) {
-      console.error('[Popup] Failed to create folder:', error);
-      errorMessage = i18n.t('folders.createFailed', { error: error.message || i18n.t('common.unknownError') });
-    }
-  }
-
   async function handleArchiveHtml() {
-    // v2: Registered item path only (new mode branch removed — R2)
-    if (localBookmarkId === null || !currentTab?.id || isArchiving || successAction) return;
+    if (localBookmarkId === null || !currentTab?.id || isArchiving || archiveStatus === 'in_progress' || successAction) return;
 
     isArchiving = true;
     errorMessage = null;
 
     try {
-      // Capture HTML from tab and delegate to background service worker archive queue (R5: non-blocking)
       const htmlResult = await extractTabHtml(currentTab.id).catch(() => ({ html: '', iframeSources: {} as Record<string, string> }));
       const htmlWithBanner = buildArchiveBannerHtml(htmlResult.html);
       const compress = (await db.settings.get('archive_compress'))?.value ?? true;
@@ -786,7 +615,7 @@
       if (response?.success === false || response?.ok === false) {
         throw new Error(response.error || i18n.t('popup.error.archiveStartFailed'));
       }
-      markArchiveInProgress(); // Optimistic — reflect in status line immediately on enqueue success (R5)
+      markArchiveInProgress();
       triggerSuccess('archive');
     } catch (error: any) {
       console.error('[Popup] Archive failed:', error);
@@ -836,18 +665,22 @@
         </div>
       </header>
 
-      <BookmarkForm
-        bind:title
-        {url}
-        bind:description
-        bind:folderId
-        {folders}
-        saveState={saveIndicator}
-        on:createFolder={handleCreateFolder}
+      <PopupOptionsCard
+        syncState={$syncStatus}
+        {aiProvider}
+        {autoSummarize}
+        {autoTags}
+        {autoFolder}
+        {aiConfigured}
+        onToggleSummarize={handleToggleSummarize}
+        onToggleTags={handleToggleTags}
+        onToggleFolder={handleToggleFolder}
+        onOpenAiSettings={handleOpenAiSettings}
+        onOpenSyncSettings={handleOpenSyncSettings}
       />
 
-      {#if isEditMode && successAction !== 'save' && successAction !== 'archive'}
-        <!-- REGISTERED: Pipeline progress/error line — completed/idle states are not displayed (buttons/form already express them) -->
+      {#if isEditMode && successAction !== 'archive'}
+        <!-- REGISTERED: Pipeline progress/error line -->
         {#if archiveStatus === 'in_progress' || aiStatus === 'pending' || aiStatus === 'running' || aiStatus === 'error'}
           <div class="pipeline-lines" aria-live="polite">
             {#if archiveStatus === 'in_progress'}
@@ -882,7 +715,7 @@
 
         <ActionButtons
           {hasArchive}
-          {isArchiving}
+          isArchiving={isArchiving || archiveStatus === 'in_progress'}
           {isDeleting}
           {successAction}
           on:archive={handleArchiveHtml}
@@ -890,36 +723,18 @@
           on:delete={handleDeleteBookmark}
         />
       {:else}
-        <!-- UNREGISTERED: "Save Bookmark" & "Save Archive" Buttons -->
+        <!-- UNREGISTERED: Single "Save Archive" Button -->
         <div class="actions-row new-bookmark-actions">
           <button
             type="button"
-            class="btn btn-primary btn-save-bookmark"
-            disabled={isAdding || isArchiving || successAction !== null || !url}
-            on:click={handleSaveBookmark}
-          >
-            {#if successAction === 'save'}
-              <Icon name="check" size={16} />
-              <span>{i18n.t('popup.saved')}</span>
-            {:else if isAdding && !isArchiving}
-              <span class="spin"><Icon name="refresh-cw" size={14} /></span>
-              <span>{i18n.t('popup.saving')}</span>
-            {:else}
-              <Icon name="bookmark" size={16} />
-              <span>{i18n.t('popup.actions.saveBookmark')}</span>
-            {/if}
-          </button>
-
-          <button
-            type="button"
-            class="btn btn-secondary btn-archive-bookmark"
-            disabled={isAdding || isArchiving || successAction !== null || !url}
+            class="btn btn-primary btn-save-and-archive btn-archive-bookmark"
+            disabled={isAdding || isArchiving || archiveStatus === 'in_progress' || successAction !== null || !url}
             on:click={handleSaveAndArchive}
           >
             {#if successAction === 'archive'}
               <Icon name="check" size={16} />
               <span>{i18n.t('popup.saved')}</span>
-            {:else if isArchiving}
+            {:else if isArchiving || isAdding || archiveStatus === 'in_progress'}
               <span class="spin"><Icon name="refresh-cw" size={14} /></span>
               <span>{i18n.t('popup.saving')}</span>
             {:else}
@@ -941,7 +756,6 @@
 </div>
 
 <style>
-  /* Popup width: Chrome default 400px -> 430px (ensures body/form readability) */
   :global(body) {
     width: 430px;
   }
@@ -951,7 +765,6 @@
     min-height: 120px;
   }
 
-  /* Signature: card top 3px hairline — left-to-right sweep during LOADING (1.2s loop) */
   .ribbon-bar {
     position: absolute;
     top: 0;
@@ -979,7 +792,6 @@
     to { transform: translateX(340%); }
   }
 
-  /* LOADING: spinner removed — mono text only */
   .loading-container {
     display: flex;
     align-items: center;
@@ -994,7 +806,6 @@
     color: var(--text-secondary);
   }
 
-  /* FAILED: slim error banner (top 2px danger line + reduced padding) */
   .error-banner {
     display: flex;
     align-items: center;
@@ -1014,7 +825,6 @@
     padding: 1rem;
   }
 
-  /* REGISTERED header — slim (wordmark eyebrow + stamp + close) */
   .header {
     display: flex;
     justify-content: space-between;
@@ -1058,14 +868,12 @@
     background: var(--bg-tertiary);
   }
 
-  /* FAILED / EMPTY */
   .failed-state {
     display: flex;
     justify-content: center;
     padding: 1.25rem 0.5rem 0.75rem;
   }
 
-  /* Background pipeline status line — mono, non-blocking */
   .pipeline-lines {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -1101,35 +909,21 @@
   }
   @keyframes pipeline-spin { to { transform: rotate(360deg); } }
 
-  /* Actions row & Unregistered mode buttons */
   .actions-row {
     display: flex;
     flex-direction: row;
     gap: 0.5rem;
     margin-top: 0.25rem;
   }
-  .new-bookmark-actions .btn-save-bookmark,
-  .new-bookmark-actions .btn-archive-bookmark {
-    flex: 1;
-    min-width: 0;
+  .new-bookmark-actions .btn-save-and-archive {
+    width: 100%;
     min-height: 38px;
     font-size: 0.875rem;
     font-weight: 600;
     justify-content: center;
     gap: 0.375rem;
   }
-  .new-bookmark-actions .btn-archive-bookmark {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
-  }
-  .new-bookmark-actions .btn-archive-bookmark:hover:not(:disabled) {
-    background: var(--bg-tertiary);
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
 
-  /* Footer: Clearly visible management page access button */
   .popup-footer {
     display: flex;
     margin-top: 0.625rem;

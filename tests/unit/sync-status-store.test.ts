@@ -7,9 +7,13 @@ import {
   refreshSyncStatus,
   setSyncProvider,
   triggerManualSync,
-  initSyncStatusStore
+  initSyncStatusStore,
+  getSyncCooldownMs,
+  _setSyncCooldownMsForTest,
+  _resetSyncCooldownForTest
 } from '../../src/lib/sync/sync-status-store';
 import { SyncEngine } from '../../src/lib/sync/sync-engine';
+import { SYNC_DISCONNECT_KEY } from '../../src/lib/sync/tombstones';
 import SyncWidget from '../../src/components/management/SyncWidget.svelte';
 import SyncSettings from '../../src/components/management/settings/SyncSettings.svelte';
 import { tick } from 'svelte';
@@ -68,6 +72,8 @@ describe('SyncStatusStore & Reactive Integration', () => {
     await mockDb.settings.clear();
     mockDb.syncState._setLastRecord(null);
     vi.clearAllMocks();
+    _resetSyncCooldownForTest();
+    _setSyncCooldownMsForTest(null);
     document.body.innerHTML = '';
     
     // Reset store to initial state
@@ -75,7 +81,9 @@ describe('SyncStatusStore & Reactive Integration', () => {
       provider: 'none',
       lastSyncTime: null,
       isSyncing: false,
-      error: null
+      isConnected: false,
+      error: null,
+      isCoolingDown: false
     });
   });
 
@@ -112,6 +120,18 @@ describe('SyncStatusStore & Reactive Integration', () => {
 
     expect(get(syncProvider)).toBe('onedrive');
     expect(get(lastSyncAt)).toBe(1700000001000);
+    expect(state.isConnected).toBe(false);
+  });
+
+  it('refreshSyncStatus reflects accurate isConnected for WebDAV', async () => {
+    await mockDb.settings.put({ key: 'sync_provider', value: 'webdav' });
+    await mockDb.settings.put({ key: 'webdav_connected', value: false });
+    let state = await refreshSyncStatus();
+    expect(state.isConnected).toBe(false);
+
+    await mockDb.settings.put({ key: 'webdav_connected', value: true });
+    state = await refreshSyncStatus();
+    expect(state.isConnected).toBe(true);
   });
 
   it('setSyncProvider mutates DB, resets adapter, updates store, and dispatches sync-resolved event', async () => {
@@ -138,6 +158,11 @@ describe('SyncStatusStore & Reactive Integration', () => {
 
     expect((await mockDb.settings.get('sync_provider')).value).toBe('none');
     expect(get(syncProvider)).toBe('none');
+
+    // Unlink time is recorded in settings (NOT syncState, whose single id:1 row every sync attempt
+    // overwrites) so deletions performed while unlinked keep their intent on reconnect.
+    const marker = (await mockDb.settings.get(SYNC_DISCONNECT_KEY)).value;
+    expect(typeof marker).toBe('number');
   });
 
   it('triggerManualSync sets syncing state, runs SyncEngine.sync, and refreshes status on success', async () => {
@@ -244,5 +269,95 @@ describe('SyncStatusStore & Reactive Integration', () => {
 
     expect((await mockDb.settings.get('sync_interval_minutes')).value).toBe(60);
     expect(SyncEngine.updateSyncSchedule).toHaveBeenCalledWith(60);
+  });
+
+  describe('Manual Sync Cooldown Guard', () => {
+    it('blocks rapid re-triggering within cooldown window and sets throttled', async () => {
+      await mockDb.settings.put({ key: 'sync_provider', value: 'google-drive' });
+      mockDb.syncState._setLastRecord({ provider: 'google-drive', lastSyncAt: 1000, status: 'idle' });
+
+      // First sync succeeds
+      const firstResult = await triggerManualSync();
+      expect(firstResult.success).toBe(true);
+      expect(firstResult.throttled).toBeUndefined();
+      expect(get(syncStatus).isCoolingDown).toBe(true);
+
+      // Immediate second call should be blocked by cooldown
+      const secondResult = await triggerManualSync();
+      expect(secondResult.success).toBe(false);
+      expect(secondResult.throttled).toBe(true);
+      expect(secondResult.message).toBe('잠시 후 다시 시도해주세요.');
+
+      // SyncEngine.sync should only have been called once
+      expect(SyncEngine.sync).toHaveBeenCalledTimes(1);
+    });
+
+    it('resets isCoolingDown after cooldown duration expires', async () => {
+      vi.useFakeTimers();
+      _setSyncCooldownMsForTest(500);
+
+      await mockDb.settings.put({ key: 'sync_provider', value: 'google-drive' });
+      mockDb.syncState._setLastRecord({ provider: 'google-drive', lastSyncAt: 1000, status: 'idle' });
+
+      await triggerManualSync();
+      expect(get(syncStatus).isCoolingDown).toBe(true);
+
+      // Fast forward past 500ms cooldown
+      vi.advanceTimersByTime(501);
+      expect(get(syncStatus).isCoolingDown).toBe(false);
+
+      // Now a new sync is permitted
+      const nextResult = await triggerManualSync();
+      expect(nextResult.success).toBe(true);
+      expect(SyncEngine.sync).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it('disables SyncWidget button when isCoolingDown is true', async () => {
+      await mockDb.settings.put({ key: 'sync_provider', value: 'google-drive' });
+      mockDb.syncState._setLastRecord({ provider: 'google-drive', lastSyncAt: 1000, status: 'idle' });
+      await refreshSyncStatus();
+
+      const target = document.createElement('div');
+      document.body.appendChild(target);
+      new SyncWidget({ target });
+      await tick();
+
+      const btn = target.querySelector('.sync-btn') as HTMLButtonElement;
+      expect(btn).not.toBeNull();
+      expect(btn.disabled).toBe(false);
+
+      // Trigger sync -> sets isCoolingDown true after finish
+      await triggerManualSync();
+      await tick();
+
+      expect(btn.disabled).toBe(true);
+      expect(btn.classList.contains('cooldown')).toBe(true);
+    });
+
+    it('disables SyncSettings button when isCoolingDown is true', async () => {
+      await mockDb.settings.put({ key: 'sync_provider', value: 'google-drive' });
+      await mockDb.settings.put({ key: 'gdrive_refresh_token', value: 'token-123' });
+      mockDb.syncState._setLastRecord({ provider: 'google-drive', lastSyncAt: 1000, status: 'idle' });
+      await refreshSyncStatus();
+
+      const target = document.createElement('div');
+      document.body.appendChild(target);
+      new SyncSettings({ target });
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      const syncBtn = target.querySelector('.btn.btn-primary.btn-sm') as HTMLButtonElement;
+      expect(syncBtn).not.toBeNull();
+      expect(syncBtn.disabled).toBe(false);
+
+      // Set cooldown state directly
+      syncStatus.update((s) => ({ ...s, isCoolingDown: true }));
+      await tick();
+
+      expect(syncBtn.disabled).toBe(true);
+      expect(syncBtn.title).toBe('잠시 후 다시 시도해주세요.');
+    });
   });
 });

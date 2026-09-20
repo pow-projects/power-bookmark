@@ -214,6 +214,28 @@ describe('WebDavAdapter connection status lifecycle', () => {
     expect((await mockDb.settings.get('webdav_connected')).value).toBe(false);
   });
 
+  it('authenticate 실패 (ECONNREFUSED / 서버 오프라인) 시 webdav_connected를 false로 저장한다', async () => {
+    await mockDb.settings.put({ key: 'webdav_url', value: 'http://localhost:8085/' });
+    await mockDb.settings.put({ key: 'webdav_connected', value: true });
+    const networkErr = new TypeError('fetch failed');
+    (networkErr as any).cause = { code: 'ECONNREFUSED' };
+    mockClient.getDirectoryContents.mockRejectedValueOnce(networkErr);
+    const adapter = new WebDavAdapter();
+
+    await expect(adapter.authenticate()).rejects.toThrow();
+    expect((await mockDb.settings.get('webdav_connected')).value).toBe(false);
+  });
+
+  it('authenticate 실패 (500 서버 오류) 시 webdav_connected를 false로 저장한다', async () => {
+    await mockDb.settings.put({ key: 'webdav_url', value: 'http://localhost:8085/' });
+    await mockDb.settings.put({ key: 'webdav_connected', value: true });
+    mockClient.getDirectoryContents.mockRejectedValueOnce({ status: 500, message: 'Internal Server Error' });
+    const adapter = new WebDavAdapter();
+
+    await expect(adapter.authenticate()).rejects.toThrow();
+    expect((await mockDb.settings.get('webdav_connected')).value).toBe(false);
+  });
+
   it('revoke 시 webdav_connected 키를 삭제한다', async () => {
     await mockDb.settings.put({ key: 'webdav_url', value: 'http://localhost:8085/' });
     await mockDb.settings.put({ key: 'webdav_connected', value: true });

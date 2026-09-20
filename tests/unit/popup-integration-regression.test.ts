@@ -67,6 +67,11 @@ vi.mock('../../src/lib/bookmarks/bookmark-manager', () => ({
 }));
 vi.mock('../../src/lib/ai/ai-summarizer', () => ({
   isAiConfigured: vi.fn().mockResolvedValue(false),
+  getAiSettings: vi.fn().mockResolvedValue({
+    autoSummarize: false,
+    autoTags: true,
+    autoFolder: true
+  }),
   type: {}
 }));
 vi.mock('../../src/lib/archive/page-capture', () => ({
@@ -160,8 +165,8 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
     stubBrowser();
   });
 
-  describe('시나리오 1: 미등록 페이지에서 북마크 저장 버튼 클릭 시 생성', () => {
-    it('미등록 페이지 → onMount 시 자동 생성되지 않고 [북마크 저장] 버튼 클릭 시 생성된다', async () => {
+  describe('시나리오 1: 미등록 페이지에서 아카이브 저장 버튼 클릭 시 생성', () => {
+    it('미등록 페이지 → onMount 시 자동 생성되지 않고 [아카이브 저장] 버튼 클릭 시 생성된다', async () => {
       setUnregisteredPage();
       (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
       (BookmarkManager.createBookmark as any).mockResolvedValue({
@@ -178,11 +183,14 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
       // onMount does NOT create bookmark
       expect(BookmarkManager.createBookmark).not.toHaveBeenCalled();
 
-      const saveBtn = target.querySelector('.btn-save-bookmark') as HTMLButtonElement | null;
-      expect(saveBtn).not.toBeNull();
-      expect(saveBtn!.textContent).toContain('북마크 저장');
+      // Standalone Save Bookmark button is removed
+      expect(target.querySelector('.btn-save-bookmark')).toBeNull();
 
-      await saveBtn!.click();
+      const archiveBtn = target.querySelector('.btn-archive-bookmark') as HTMLButtonElement | null;
+      expect(archiveBtn).not.toBeNull();
+      expect(archiveBtn!.textContent).toContain('아카이브 저장');
+
+      await archiveBtn!.click();
       await tick();
       await new Promise((r) => setTimeout(r, 20));
       await tick();
@@ -206,35 +214,29 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
     });
   });
 
-  describe('시나리오 2: 클릭 시 제목·폴더 목록이 UI에 표시', () => {
-    it('제목 입력값이 현재 페이지 제목으로 채워지고 폴더 드롭다운에 목록이 표시된다', async () => {
+  describe('시나리오 2: 클라우드 동기화 상태 및 AI 자동화 옵션 표시', () => {
+    it('클라우드 동기화 상태 배지와 AI 자동화 옵션 토글 및 툴팁이 표시된다', async () => {
       setUnregisteredPage();
       (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
-      (BookmarkManager.createBookmark as any).mockResolvedValue({
-        id: 7, syncId: 'sync-7', bookmarkId: 'bm-7',
-        url: TAB_UNREGISTERED.url, title: TAB_UNREGISTERED.title, folderPath: '북마크바'
-      });
 
       const { target } = await mountApp();
 
-      const titleInput = target.querySelector('#title') as HTMLInputElement | null;
-      expect(titleInput).not.toBeNull();
-      expect(titleInput!.value).toBe('새 페이지 제목');
+      // Form inputs #title are removed
+      expect(target.querySelector('#title')).toBeNull();
 
-      // Open folder dropdown to verify list
-      const trigger = target.querySelector('.select-trigger') as HTMLButtonElement | null;
-      expect(trigger).not.toBeNull();
-      await trigger!.click();
-      await tick();
-      const options = target.querySelectorAll('.option-item');
-      expect(options.length).toBe(SAMPLE_FOLDERS.length);
-      expect(options[0].textContent).toContain('북마크바');
-      expect(options[1].textContent).toContain('개발');
+      // Cloud sync badge & AI toggles are present
+      const syncBadge = target.querySelector('.sync-badge');
+      expect(syncBadge).not.toBeNull();
+      expect(syncBadge?.getAttribute('title')).toBeTruthy();
+
+      expect(target.querySelector('#toggle-auto-summarize')).not.toBeNull();
+      expect(target.querySelector('#toggle-auto-tags')).not.toBeNull();
+      expect(target.querySelector('#toggle-auto-folder')).not.toBeNull();
     });
   });
 
-  describe('시나리오 3: 이미 등록된 페이지에서 기존 등록 내용 표시', () => {
-    it('기존 북마크가 있으면 제목이 기존 등록 제목으로 바인딩되고 새 북마크를 만들지 않는다', async () => {
+  describe('시나리오 3: 이미 등록된 페이지에서 액션 버튼 표시', () => {
+    it('기존 북마크가 있으면 수정 모드로 진입하고 새 북마크를 만들지 않으며 삭제 버튼이 표시된다', async () => {
       setRegisteredPage();
       (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
 
@@ -243,32 +245,23 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
       // Unlike scenario 1, createBookmark must not be called (block duplicate creation)
       expect(BookmarkManager.createBookmark).not.toHaveBeenCalled();
 
-      // Existing registered title displayed in UI
-      const titleInput = target.querySelector('#title') as HTMLInputElement | null;
-      expect(titleInput).not.toBeNull();
-      expect(titleInput!.value).toBe('기존 등록 제목');
-
       // Enter edit mode -> delete button displayed
       expect(target.querySelector('.btn-danger')).not.toBeNull();
+      expect(target.textContent).toContain('삭제');
     });
 
-    it('기존 등록 폴더가 드롭다운 선택 텍스트로 표시된다', async () => {
+    it('기존 북마크가 있을 때도 옵션 카드가 표시된다', async () => {
       setRegisteredPage();
       (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
-      // browser.bookmarks.get -> returns parent folder id='2' (Development)
-      mockBookmarksGet.mockResolvedValue([{ id: 'bm-42', parentId: '2', title: '기존 등록 제목' }]);
 
       const { target } = await mountApp();
 
-      const selectedText = target.querySelector('.selected-text');
-      expect(selectedText).not.toBeNull();
-      expect(selectedText!.textContent).toContain('개발');
+      expect(target.querySelector('.options-container')).not.toBeNull();
     });
   });
 
   describe('통합 경계 검증', () => {
     it('등록/미등록 분기 없이 onMount가 중단되지 않는다 (TDZ 회귀 방지)', async () => {
-      // Unregistered page, folder loading, creation all normal -> onMount runs to completion
       setUnregisteredPage();
       (BookmarkManager.getFolders as any).mockResolvedValue(SAMPLE_FOLDERS);
       (BookmarkManager.createBookmark as any).mockResolvedValue({
@@ -279,9 +272,9 @@ describe('popup App.svelte 통합 회귀 — 확장 버튼 클릭 3 시나리오
 
       const { target } = await mountApp();
 
-      // Form rendered only if onMount does not abort with error
+      // Options container rendered only if onMount does not abort with error
       expect(consoleErrorSpy.mock.calls.some((c) => String(c[0]).includes('Popup onMount error'))).toBe(false);
-      expect(target.querySelector('#title')).not.toBeNull();
+      expect(target.querySelector('.options-container')).not.toBeNull();
       consoleErrorSpy.mockRestore();
     });
   });

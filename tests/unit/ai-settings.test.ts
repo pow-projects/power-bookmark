@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { tick } from 'svelte';
+import { createI18nMock } from '../helpers/i18n-mock';
 import { saveAiSettings, getAiSettings } from '../../src/lib/ai/ai-summarizer';
 import { getProviderList, getModelList } from '../../src/lib/ai/provider-registry';
 
@@ -27,12 +28,14 @@ vi.mock('../../src/lib/ui/toast-store', () => ({
 
 describe('SettingsContainer AI UI', () => {
   beforeEach(async () => {
+    (globalThis as any).i18n = createI18nMock();
     await mockDb.settings.clear();
     document.body.innerHTML = '';
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -248,6 +251,101 @@ describe('SettingsContainer AI UI', () => {
       const fetched = [{ id: 'first-model', name: 'First' }, { id: 'second-model', name: 'Second' }];
       const providerDef = { defaultModels: ['unmatched-1', 'unmatched-2'] };
       expect(resolveDefaultModel('', fetched, providerDef)).toBe('');
+    });
+  });
+
+  describe('에러 분류 헬퍼 및 Custom API 에러 노출 위치', () => {
+    it('네트워크/엔드포인트 에러와 인증/키 에러를 정확하게 분류한다', async () => {
+      const { isNetworkOrEndpointError, isAuthOrKeyError } = await import('../../src/components/management/settings/AiSettings.svelte');
+
+      expect(isNetworkOrEndpointError('Failed to fetch')).toBe(true);
+      expect(isNetworkOrEndpointError('NetworkError when attempting to fetch resource.')).toBe(true);
+      expect(isNetworkOrEndpointError('ECONNREFUSED 127.0.0.1:8080')).toBe(true);
+      expect(isNetworkOrEndpointError('custom API error: 404 (Not Found)')).toBe(true);
+      expect(isNetworkOrEndpointError('custom API error: 500 (Internal Server Error)')).toBe(true);
+      expect(isNetworkOrEndpointError('Invalid API key format')).toBe(false);
+      expect(isNetworkOrEndpointError('custom API error: 401 (Unauthorized)')).toBe(false);
+
+      expect(isAuthOrKeyError('Invalid API key format')).toBe(true);
+      expect(isAuthOrKeyError('custom API error: 401 (Unauthorized)')).toBe(true);
+      expect(isAuthOrKeyError('custom API error: 403 (Forbidden)')).toBe(true);
+      expect(isAuthOrKeyError('Failed to fetch')).toBe(false);
+      expect(isAuthOrKeyError('ECONNREFUSED')).toBe(false);
+    });
+
+    it('Custom API(llama.cpp 등)에서 서버 미구동으로 Failed to fetch 발생 시, 에러가 API Key가 아닌 Endpoint 아래에 노출된다', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+      const { default: SettingsContainer } = await import('../../src/components/management/SettingsContainer.svelte');
+      const target = document.body;
+      const component = new SettingsContainer({ target, props: { initialSection: 'ai' } });
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      const providerSelect = document.getElementById('ai-provider') as HTMLSelectElement;
+      providerSelect.value = 'custom';
+      providerSelect.dispatchEvent(new Event('change'));
+      await tick();
+      await new Promise((r) => setTimeout(r, 50));
+      await tick();
+
+      // 1. Error MUST appear under Endpoint
+      const endpointInput = document.getElementById('ai-endpoint');
+      expect(endpointInput).not.toBeNull();
+      const endpointGroup = endpointInput?.closest('.form-group');
+      expect(endpointGroup).not.toBeNull();
+      const endpointError = endpointGroup?.querySelector('.form-error');
+      expect(endpointError).not.toBeNull();
+      expect(endpointError?.textContent).toContain('서버에 연결할 수 없습니다');
+
+      // 2. Error MUST NOT appear under API Key
+      const apiKeyInput = document.getElementById('api-key');
+      expect(apiKeyInput).not.toBeNull();
+      const apiKeyGroup = apiKeyInput?.closest('.form-group');
+      const apiKeyError = apiKeyGroup?.querySelector('.form-error');
+      expect(apiKeyError).toBeNull();
+
+      component.$destroy();
+    });
+
+    it('Custom API에서 401 Unauthorized 발생 시, 에러가 Endpoint가 아닌 API Key 아래에 노출된다', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized'
+      }));
+
+      const { default: SettingsContainer } = await import('../../src/components/management/SettingsContainer.svelte');
+      const target = document.body;
+      const component = new SettingsContainer({ target, props: { initialSection: 'ai' } });
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      const providerSelect = document.getElementById('ai-provider') as HTMLSelectElement;
+      providerSelect.value = 'custom';
+      providerSelect.dispatchEvent(new Event('change'));
+      await tick();
+      await new Promise((r) => setTimeout(r, 50));
+      await tick();
+
+      // 1. Error MUST NOT appear under Endpoint
+      const endpointInput = document.getElementById('ai-endpoint');
+      expect(endpointInput).not.toBeNull();
+      const endpointGroup = endpointInput?.closest('.form-group');
+      const endpointError = endpointGroup?.querySelector('.form-error');
+      expect(endpointError).toBeNull();
+
+      // 2. Error MUST appear under API Key
+      const apiKeyInput = document.getElementById('api-key');
+      expect(apiKeyInput).not.toBeNull();
+      const apiKeyGroup = apiKeyInput?.closest('.form-group');
+      const apiKeyError = apiKeyGroup?.querySelector('.form-error');
+      expect(apiKeyError).not.toBeNull();
+      expect(apiKeyError?.textContent).toContain('401');
+
+      component.$destroy();
     });
   });
 });
