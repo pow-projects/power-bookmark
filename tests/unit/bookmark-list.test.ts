@@ -121,6 +121,8 @@ describe('BookmarkList.svelte - Folder Filter Options & Selection', () => {
     mockData.archivedPages = [];
     mockData.settings = {};
     storageListeners.length = 0;
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+    globalThis.URL.revokeObjectURL = vi.fn();
     (globalThis as any).browser.runtime.sendMessage = vi.fn(async () => ({ ok: true }));
   });
 

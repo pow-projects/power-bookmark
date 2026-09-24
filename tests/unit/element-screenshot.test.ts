@@ -28,12 +28,8 @@ describe('element-screenshot 유틸리티 단위 테스트', () => {
       return null;
     };
 
-    if (typeof URL.createObjectURL !== 'function') {
-      URL.createObjectURL = vi.fn(() => 'blob:mock-url');
-    }
-    if (typeof URL.revokeObjectURL !== 'function') {
-      URL.revokeObjectURL = vi.fn();
-    }
+    URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+    URL.revokeObjectURL = vi.fn();
   });
 
   afterEach(() => {
