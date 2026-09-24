@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import Icon from '../../shared/Icon.svelte';
   import Spinner from '../../shared/Spinner.svelte';
   import { showToast } from '../../../lib/ui/toast-store';
@@ -24,6 +24,10 @@
     }
   }
 
+  onDestroy(() => {
+    clearAutoConnectTimer();
+  });
+
   function canConnect(): boolean {
     const rawId = clientId.trim();
     const rawSecret = clientSecret.trim();
@@ -33,7 +37,7 @@
     return !!rawId;
   }
 
-  function triggerDebouncedConnect(delayMs = 1200) {
+  function triggerDebouncedConnect(delayMs = 2200) {
     clearAutoConnectTimer();
     if (!canConnect()) return;
     autoConnectTimer = setTimeout(() => {

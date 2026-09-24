@@ -148,12 +148,18 @@ const mockAdapter = {
   getLastModified: vi.fn().mockResolvedValue(1000)
 };
 
+// vitest 5는 mock을 `new`로 부를 때 Reflect.construct를 쓰므로 구현이 화살표 함수면
+// "… is not a constructor"로 던진다 — 생성자 목은 function/class 형태로 준다.
 vi.mock('../../src/lib/sync/adapters/google-drive', () => ({
-  GoogleDriveAdapter: vi.fn().mockImplementation(() => mockAdapter)
+  GoogleDriveAdapter: vi.fn(function () {
+    return mockAdapter;
+  })
 }));
 
 vi.mock('../../src/lib/sync/adapters/webdav', () => ({
-  WebDavAdapter: vi.fn().mockImplementation(() => mockAdapter)
+  WebDavAdapter: vi.fn(function () {
+    return mockAdapter;
+  })
 }));
 
 import {

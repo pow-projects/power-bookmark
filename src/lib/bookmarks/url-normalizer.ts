@@ -97,3 +97,72 @@ export function generateDeterministicSyncId(rawUrl: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
+/**
+ * Checks whether a given hostname or IP string represents a loopback address.
+ * Covers:
+ * - 'localhost' or '*.localhost' (RFC 6761)
+ * - 127.0.0.0/8 IPv4 loopback range (e.g., 127.0.0.1, 127.0.0.2)
+ * - '::1' / '[::1]' IPv6 loopback
+ * - '0.0.0.0' / '::' / '[::]' all-zeros local addresses
+ */
+export function isLoopbackHost(hostname: string): boolean {
+  if (!hostname) return false;
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').trim();
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (/^127(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){1,3}$/.test(h)) return true;
+  if (h === '::1' || h === '0.0.0.0' || h === '::' || h === '::ffff:127.0.0.1') return true;
+  return false;
+}
+
+/**
+ * Ensures a URL string has a protocol (scheme).
+ * If protocol is omitted:
+ * - If host is a loopback address, prepends 'http://'
+ * - Otherwise, prepends 'https://'
+ * If protocol is already present (e.g. 'http://', 'https://'), returns the trimmed original.
+ */
+export function ensureUrlProtocol(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  // If already has a scheme (e.g., http://, https://, or any scheme://)
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Strip leading // if present (protocol-relative)
+  const withoutLeadingSlashes = trimmed.replace(/^\/\//, '');
+
+  // Extract authority part (host + port + optional userinfo) strictly before path / query / fragment / backslash
+  const authority = withoutLeadingSlashes.split(/[/?#\\]/)[0];
+  const rest = withoutLeadingSlashes.slice(authority.length);
+
+  // Strip userinfo if present in authority: user:pass@host -> host
+  const atIdx = authority.lastIndexOf('@');
+  const userinfo = atIdx !== -1 ? authority.slice(0, atIdx + 1) : '';
+  const hostAndPort = atIdx !== -1 ? authority.slice(atIdx + 1) : authority;
+
+  let hostname = hostAndPort;
+  let formattedAuthority = authority;
+
+  if (hostAndPort.startsWith('[')) {
+    // Bracketed IPv6: e.g. [::1]:8080 or [::1]
+    const closeBracketIdx = hostAndPort.indexOf(']');
+    if (closeBracketIdx !== -1) {
+      hostname = hostAndPort.slice(0, closeBracketIdx + 1);
+    }
+  } else if ((hostAndPort.match(/:/g) || []).length > 1) {
+    // Unbracketed IPv6: e.g. ::1 or ::
+    hostname = `[${hostAndPort}]`;
+    formattedAuthority = `${userinfo}[${hostAndPort}]`;
+  } else {
+    // IPv4 or hostname: e.g. localhost:8080 or 127.0.0.1:80
+    hostname = hostAndPort.split(':')[0];
+  }
+
+  const isLoopback = isLoopbackHost(hostname);
+  const scheme = isLoopback ? 'http://' : 'https://';
+
+  return `${scheme}${formattedAuthority}${rest}`;
+}
+

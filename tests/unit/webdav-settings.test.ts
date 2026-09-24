@@ -46,6 +46,29 @@ describe('normalizeWebdavAuth', () => {
     expect(r.password).toBe('p@ss');
     expect(r.url).toBe('http://localhost:8085/');
   });
+
+  it('프로토콜 생략 시 루프백 호스트에는 http://를 자동으로 붙인다', () => {
+    const r1 = normalizeWebdavAuth('localhost:8085', 'admin', 'pass');
+    expect(r1.url).toBe('http://localhost:8085/');
+    expect(r1.username).toBe('admin');
+    expect(r1.password).toBe('pass');
+
+    const r2 = normalizeWebdavAuth('127.0.0.1:8085/webdav', 'admin', 'pass');
+    expect(r2.url).toBe('http://127.0.0.1:8085/webdav');
+
+    const r3 = normalizeWebdavAuth('admin:pass@localhost:8085');
+    expect(r3.url).toBe('http://localhost:8085/');
+    expect(r3.username).toBe('admin');
+    expect(r3.password).toBe('pass');
+  });
+
+  it('프로토콜 생략 시 비-루프백 호스트에는 https://를 자동으로 붙인다', () => {
+    const r1 = normalizeWebdavAuth('dav.box.com/dav', 'admin', 'pass');
+    expect(r1.url).toBe('https://dav.box.com/dav');
+
+    const r2 = normalizeWebdavAuth('my-nas.synology.me:5001/remote.php/webdav', 'user', 'pass');
+    expect(r2.url).toBe('https://my-nas.synology.me:5001/remote.php/webdav');
+  });
 });
 
 describe('saveWebdavSettings', () => {

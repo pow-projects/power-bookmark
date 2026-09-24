@@ -45,9 +45,14 @@ Chrome manages child processes via `wait()` in the main process. Killing only ch
 ### Vitest Runtime Configuration
 - **Browser Condition Resolution**: `vitest.config.ts` must maintain `conditions: ['browser']` under `resolve`. Without this, Vitest resolves Svelte modules under SSR mode (`ssr.js`), causing `onMount` and component lifecycles to no-op in `jsdom`.
 - **Environment**: `jsdom` with `url: 'http://localhost/management.html'`.
+- **v5 exposes Node globals into jsdom** (`URL.createObjectURL` → `blob:nodedata:<uuid>`, a working `fetch`, `localStorage`). Guard-style stubs (`if (!globalThis.URL.createObjectURL) …`) therefore silently stop installing — when a test asserts a deterministic value, overwrite unconditionally. Live-endpoint probes (`skipIf(!live)`) now really hit the network locally; CI has no endpoint, so they skip there.
+- **v5 clears mocks before every test** (`clearMocks` default `true`): never rely on a mock's call history surviving into the next test.
+- **Do not switch the pool to chase the "jsdom created N times" hint**: measured on 109 files (Vitest 5.0.1, Node 26) default `forks` ≈9.9s, `threads` ≈9.6s, `vmThreads` ≈4.1s but 65 failures (vm contexts lack `crypto.subtle`/`TransformStream`/`ReadableStream`), `--no-isolate` 335 failures.
+- **Reports**: v5 writes `html`/`json`/`junit`/attachments into `.vitest/` (gitignored), coverage into `coverage/`.
 
 ### Mocking Guidelines for Tests
 - **Browser Global**: Use `vi.stubGlobal('browser', { ... })` and `vi.hoisted()` for mocks referenced within `vi.mock()` factories.
+- **Mocked Classes (`new`)**: implement constructor mocks as `vi.fn(function () { return instance; })` — Vitest 5 constructs through `Reflect.construct`, so an arrow-function implementation throws `… is not a constructor`.
 - **Dexie Mock Chains**: Mock Dexie tables dynamically with chainable queries (`.where().equals()`, `.filter()`, `.first()`, `.toArray()`, `.add()`, `.put()`, `.delete()`, `.transaction()`). Ensure tables evaluate store arrays dynamically at call time.
 - **Timer & Queue Backoff**: In queue/retry tests, mock `retryBackoffMs` to minimal values (5ms) to prevent test timeouts and multi-second slowdowns.
 - **Test State Hygiene**: Always clear mock tables and reset queue singletons (`_resetArchiveQueueForTest()`, `vi.clearAllMocks()`, `vi.unstubAllGlobals()`) in `beforeEach` / `afterEach`.

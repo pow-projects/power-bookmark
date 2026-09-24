@@ -347,5 +347,36 @@ describe('SettingsContainer AI UI', () => {
 
       component.$destroy();
     });
+
+    it('AI 엔드포인트 입력 시 프로토콜 생략하면 루프백은 http://, 비-루프백은 https://를 자동으로 붙인다', async () => {
+      const { default: SettingsContainer } = await import('../../src/components/management/SettingsContainer.svelte');
+      const target = document.body;
+      const component = new SettingsContainer({ target, props: { initialSection: 'ai' } });
+      await tick();
+
+      const providerSelect = document.getElementById('ai-provider') as HTMLSelectElement;
+      providerSelect.value = 'custom';
+      providerSelect.dispatchEvent(new Event('change'));
+      await tick();
+
+      const endpointInput = document.getElementById('ai-endpoint') as HTMLInputElement;
+      expect(endpointInput).not.toBeNull();
+
+      // 1. Enter loopback URL without protocol: localhost:11434/v1
+      endpointInput.value = 'localhost:11434/v1';
+      endpointInput.dispatchEvent(new Event('input'));
+      endpointInput.dispatchEvent(new Event('blur'));
+      await tick();
+      expect(endpointInput.value).toBe('http://localhost:11434/v1');
+
+      // 2. Enter non-loopback URL without protocol: api.openai.com/v1
+      endpointInput.value = 'api.openai.com/v1';
+      endpointInput.dispatchEvent(new Event('input'));
+      endpointInput.dispatchEvent(new Event('blur'));
+      await tick();
+      expect(endpointInput.value).toBe('https://api.openai.com/v1');
+
+      component.$destroy();
+    });
   });
 });

@@ -5,6 +5,9 @@ declare const __CHROME_EXTENSION_ID__: string;
 declare const __FIREFOX_EXTENSION_ID__: string;
 
 interface ImportMetaEnv {
+  readonly MODE?: string;
+  readonly DEV?: boolean;
+  readonly PROD?: boolean;
   readonly WXT_DEV_WEBDAV_URL?: string;
   readonly WXT_DEV_WEBDAV_USERNAME?: string;
   readonly WXT_DEV_WEBDAV_PASSWORD?: string;

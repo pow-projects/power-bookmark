@@ -4,6 +4,7 @@ import { analyzeWithAiKind } from './ai-core';
 import { AI_ANALYSIS_TIMEOUT_MS } from './queue-config';
 import { getProvider } from './provider-registry';
 import { isLocalEndpoint } from './llama-safety';
+import { ensureUrlProtocol } from '../bookmarks/url-normalizer';
 export * from './types';
 
 /**
@@ -108,7 +109,10 @@ export async function saveAiSettings(settings: AiSettings): Promise<void> {
     await db.settings.put({ key: AI_SETTINGS_KEYS.CACHED_MODELS_MAP, value: settings.cachedModelsMap });
   }
 
-  if (settings.customEndpoint !== undefined) await db.settings.put({ key: AI_SETTINGS_KEYS.CUSTOM_ENDPOINT, value: settings.customEndpoint });
+  if (settings.customEndpoint !== undefined) {
+    const normEndpoint = settings.customEndpoint.trim() ? ensureUrlProtocol(settings.customEndpoint) : '';
+    await db.settings.put({ key: AI_SETTINGS_KEYS.CUSTOM_ENDPOINT, value: normEndpoint });
+  }
   if (settings.customHeaders !== undefined) await db.settings.put({ key: AI_SETTINGS_KEYS.CUSTOM_HEADERS, value: settings.customHeaders });
   await db.settings.put({ key: AI_SETTINGS_KEYS.AUTO_SUMMARIZE, value: settings.autoSummarize });
   // Save using new keys only — legacy ai_auto_categorize key is maintained only for backward compatibility loading

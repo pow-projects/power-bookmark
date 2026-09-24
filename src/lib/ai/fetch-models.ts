@@ -2,6 +2,7 @@ import { ModelDefinition, getModelList, getProvider, DEFAULT_ENDPOINTS } from '.
 import { isLocalEndpoint } from './llama-safety';
 import { getOpenCodeSessionId } from './opencode-session';
 import { parseCustomHeaders } from './custom-headers';
+import { ensureUrlProtocol } from '../bookmarks/url-normalizer';
 
 export function validateApiKeyFormat(provider: string, apiKey: string, customEndpoint?: string): boolean {
   if (provider === 'none') return true;
@@ -134,7 +135,8 @@ export async function fetchAvailableModelsWithValidation(
     }
 
     // Fetch model list for local providers (Ollama, LM Studio, etc.), custom endpoints, and OpenAI-compatible providers
-    const endpoint = (customEndpoint || DEFAULT_ENDPOINTS[provider] || '').trim().replace(/\/+$/, '');
+    const rawEndpoint = customEndpoint ? ensureUrlProtocol(customEndpoint) : DEFAULT_ENDPOINTS[provider] || '';
+    const endpoint = rawEndpoint.trim().replace(/\/+$/, '');
     if (!endpoint) {
       return { success: true, models: getModelList(provider) };
     }

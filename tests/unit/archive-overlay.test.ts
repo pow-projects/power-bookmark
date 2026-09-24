@@ -6,9 +6,9 @@ describe('Management Page Archive Navigation & Overlay', () => {
   beforeEach(() => {
     vi.resetModules();
     document.body.innerHTML = '';
-    if (!globalThis.URL.createObjectURL) {
-      globalThis.URL.createObjectURL = vi.fn(() => 'blob:http://localhost/test-uuid');
-    }
+    // vitest 5의 jsdom 환경에는 URL.createObjectURL이 이미 있다(노드 구현 → `blob:nodedata:<uuid>`).
+    // 조건부 설치로는 스텁이 붙지 않아 아래 단언이 실제 UUID와 비교되므로 항상 덮어쓴다.
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:http://localhost/test-uuid');
     if (!globalThis.window.open) {
       globalThis.window.open = vi.fn();
     }

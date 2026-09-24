@@ -12,6 +12,10 @@ skills-lock.json
 # task worktrees
 .worktrees/
 
+# test artifacts
+.vitest/
+coverage/
+
 # environment variables
 .env
 .env.local

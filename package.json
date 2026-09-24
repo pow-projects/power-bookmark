@@ -1,6 +1,6 @@
 {
   "name": "powerbookmark",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "A bookmark extension for Chrome and Firefox that handles organizing, summarizing, offline archiving, and cloud sync of your bookmarks. Features AI categorization with folder suggestions and summaries, a dashboard with collection stats and dead-link detection, single-file offline archives (ad/tracking scripts stripped, gzipped), and two-way cloud sync across Google Drive, OneDrive, Dropbox, and WebDAV with AES-256 encrypted credentials.",
   "author": "0deep <github.com/0deep>",
   "license": "MIT",
@@ -62,13 +62,13 @@
     "@types/chrome": "^0.2.9",
     "@types/mozilla__readability": "^0.4.2",
     "@types/turndown": "^5.0.6",
-    "@vitest/coverage-v8": "^3.2.7",
+    "@vitest/coverage-v8": "^5.0.1",
     "@wxt-dev/module-svelte": "^2.0.5",
     "jsdom": "^30.0.1",
     "svelte": "^5.57.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.0",
-    "vitest": "^3.2.7",
+    "vitest": "^5.0.1",
     "web-ext": "^10.6.0",
     "wxt": "^0.21.4"
   }

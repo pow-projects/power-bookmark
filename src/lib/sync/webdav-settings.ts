@@ -1,5 +1,8 @@
 import db from '../db';
 import { encryptCredential } from './crypto';
+import { ensureUrlProtocol } from '../bookmarks/url-normalizer';
+
+export { ensureUrlProtocol };
 
 /**
  * Helper to store and reuse WebDAV authentication credentials under separate keys (webdav_username / webdav_password).
@@ -20,6 +23,7 @@ export interface NormalizedWebdavAuth {
  * Normalizes input values.
  * - If URL includes `username:password@` userinfo, applies it with precedence (legacy compatibility),
  * - Returned url is always a clean URL with userinfo stripped.
+ * - If protocol is omitted, automatically prepends http:// for loopback and https:// for others.
  */
 export function normalizeWebdavAuth(
   url: string,
@@ -31,6 +35,7 @@ export function normalizeWebdavAuth(
   let p = password || '';
 
   if (cleanUrl) {
+    cleanUrl = ensureUrlProtocol(cleanUrl);
     try {
       const parsed = new URL(cleanUrl);
       if (parsed.username) {
@@ -51,7 +56,33 @@ export function normalizeWebdavAuth(
       parsed.password = '';
       cleanUrl = parsed.toString();
     } catch {
-      // Keep original if URL cannot be parsed
+      // Fallback regex if URL constructor fails: strip userinfo to prevent plaintext password leakage
+      const userinfoMatch = cleanUrl.match(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)([^/@]+)@(.*)$/);
+      if (userinfoMatch) {
+        const scheme = userinfoMatch[1];
+        const userinfo = userinfoMatch[2];
+        const rest = userinfoMatch[3];
+        const colonIdx = userinfo.indexOf(':');
+        if (colonIdx !== -1) {
+          try {
+            u = decodeURIComponent(userinfo.slice(0, colonIdx));
+          } catch {
+            u = userinfo.slice(0, colonIdx);
+          }
+          try {
+            p = decodeURIComponent(userinfo.slice(colonIdx + 1));
+          } catch {
+            p = userinfo.slice(colonIdx + 1);
+          }
+        } else {
+          try {
+            u = decodeURIComponent(userinfo);
+          } catch {
+            u = userinfo;
+          }
+        }
+        cleanUrl = `${scheme}${rest}`;
+      }
     }
   }
 

@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import Icon from '../../shared/Icon.svelte';
   import Spinner from '../../shared/Spinner.svelte';
   import { normalizeWebdavAuth } from '../../../lib/sync/webdav-settings';
+  import { ensureUrlProtocol } from '../../../lib/bookmarks/url-normalizer';
 
   export let webdavUrl: string = '';
   export let webdavUsername: string = '';
@@ -22,16 +23,28 @@
     }
   }
 
-  function triggerDebouncedConnect(delayMs = 1200) {
+  onDestroy(() => {
+    clearAutoConnectTimer();
+  });
+
+  function triggerDebouncedConnect(delayMs = 2200) {
     clearAutoConnectTimer();
     autoConnectTimer = setTimeout(() => {
-      dispatch('connect');
+      normalizeAndConnect();
     }, delayMs);
+  }
+
+  function normalizeAndConnect() {
+    clearAutoConnectTimer();
+    if (webdavUrl.trim()) {
+      webdavUrl = ensureUrlProtocol(webdavUrl);
+    }
+    dispatch('connect');
   }
 
   function triggerImmediateConnect() {
     clearAutoConnectTimer();
-    dispatch('connect');
+    normalizeAndConnect();
   }
 
   function handleUrlInput() {
@@ -41,6 +54,19 @@
       triggerDebouncedConnect();
     } else {
       clearAutoConnectTimer();
+    }
+  }
+
+  function handleUrlBlur() {
+    if (webdavUrl.trim()) {
+      const ensured = ensureUrlProtocol(webdavUrl);
+      if (ensured !== webdavUrl) {
+        webdavUrl = ensured;
+        const normalized = normalizeWebdavAuth(webdavUrl, webdavUsername, webdavPassword);
+        if (normalized.password || webdavPassword) {
+          triggerImmediateConnect();
+        }
+      }
     }
   }
 
@@ -72,6 +98,7 @@
       class="form-input"
       bind:value={webdavUrl} 
       on:input={handleUrlInput}
+      on:blur={handleUrlBlur}
       on:keydown={(e) => e.key === 'Enter' && triggerImmediateConnect()}
       placeholder="http://localhost:8085/" 
     />

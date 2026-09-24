@@ -60,10 +60,13 @@
     DEFAULT_ENDPOINTS
   } from '../../../lib/ai/provider-registry';
   import { fetchAvailableModelsWithValidation, validateApiKeyFormat } from '../../../lib/ai/fetch-models';
+  import { ensureUrlProtocol } from '../../../lib/bookmarks/url-normalizer';
   import { showToast } from '../../../lib/ui/toast-store';
   import Icon from '../../shared/Icon.svelte';
   import Spinner from '../../shared/Spinner.svelte';
   import ToggleSwitch from '../../shared/ToggleSwitch.svelte';
+
+  const DEBOUNCE_DELAY_MS = 1400; // Increased by 1000ms (from 400ms to 1400ms) for comfortable editing without premature auto-save/fetch
 
   let aiProvider: string = 'none';
   let aiModel: string = '';
@@ -332,6 +335,8 @@
   });
 
   onDestroy(() => {
+    if (saveTimer) clearTimeout(saveTimer);
+    if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
     if (typeof window !== 'undefined') {
       window.removeEventListener('click', handleClickOutside);
     }
@@ -365,15 +370,16 @@
 
   async function autoFetchModels(silent = false) {
     if (aiProvider === 'none') return;
+    const endpointToFetch = aiCustomEndpoint.trim() ? ensureUrlProtocol(aiCustomEndpoint) : '';
     const pDef = getProvider(aiProvider);
     const isLocal = pDef?.isLocal || pDef?.id === 'custom';
-    const isValidKey = isLocal || validateApiKeyFormat(aiProvider, aiApiKey, aiCustomEndpoint);
+    const isValidKey = isLocal || validateApiKeyFormat(aiProvider, aiApiKey, endpointToFetch);
     if (!isValidKey) return;
 
     isFetchingModels = true;
     fetchErrorMessage = '';
     try {
-      const res = await fetchAvailableModelsWithValidation(aiProvider, aiApiKey, aiCustomEndpoint, aiCustomHeaders);
+      const res = await fetchAvailableModelsWithValidation(aiProvider, aiApiKey, endpointToFetch, aiCustomHeaders);
       if (res.success && res.models && res.models.length > 0) {
         modelsList = res.models;
         cachedModelsMap[aiProvider] = res.models;
@@ -409,7 +415,17 @@
       if (isApiKeyValid) {
         autoFetchModels(false);
       }
-    }, 400);
+    }, DEBOUNCE_DELAY_MS);
+  }
+
+  function handleEndpointBlur() {
+    if (aiCustomEndpoint.trim()) {
+      const ensured = ensureUrlProtocol(aiCustomEndpoint);
+      if (ensured !== aiCustomEndpoint) {
+        aiCustomEndpoint = ensured;
+        triggerSave();
+      }
+    }
   }
 
   async function saveSettings() {
@@ -417,6 +433,9 @@
     try {
       if (aiProvider !== 'none') {
         apiKeysMap[aiProvider] = aiApiKey;
+      }
+      if (aiCustomEndpoint.trim()) {
+        aiCustomEndpoint = ensureUrlProtocol(aiCustomEndpoint);
       }
       await saveAiSettings({
         provider: aiProvider,
@@ -441,7 +460,14 @@
   function triggerSave() {
     if (!isLoaded) return;
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveSettings, 400);
+    saveTimer = setTimeout(saveSettings, DEBOUNCE_DELAY_MS);
+  }
+
+  function triggerImmediateSave() {
+    if (!isLoaded) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+    saveSettings();
   }
 </script>
 
@@ -495,6 +521,17 @@
             class="form-input"
             bind:value={aiCustomEndpoint}
             on:input={handleKeyOrEndpointInput}
+            on:blur={handleEndpointBlur}
+            on:keydown={(e) => {
+              if (e.key === 'Enter') {
+                if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+                if (aiCustomEndpoint.trim()) {
+                  aiCustomEndpoint = ensureUrlProtocol(aiCustomEndpoint);
+                }
+                triggerImmediateSave();
+                if (isApiKeyValid) autoFetchModels(false);
+              }
+            }}
             placeholder={selectedProviderDef?.defaultEndpoint || DEFAULT_ENDPOINTS[aiProvider] || 'http://localhost:11434/v1'}
           />
           {#if endpointErrorMessage}
