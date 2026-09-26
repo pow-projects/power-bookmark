@@ -1,5 +1,43 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getOAuthRedirectUri } from '~/lib/sync/oauth-utils';
+import { getOAuthRedirectUri, formatFirefoxLoopbackUri } from '~/lib/sync/oauth-utils';
+
+describe('formatFirefoxLoopbackUri', () => {
+  it('converts standard allizom.org URL to loopback URI without trailing slash', () => {
+    const raw = 'https://abcdef123456.extensions.allizom.org/';
+    expect(formatFirefoxLoopbackUri(raw)).toBe('http://127.0.0.1/mozoauth2/abcdef123456');
+  });
+
+  it('converts standard allizom.org URL without trailing slash to loopback URI', () => {
+    const raw = 'https://abcdef123456.extensions.allizom.org';
+    expect(formatFirefoxLoopbackUri(raw)).toBe('http://127.0.0.1/mozoauth2/abcdef123456');
+  });
+
+  it('handles http allizom.org URL correctly', () => {
+    const raw = 'http://testsubdomain.extensions.allizom.org/';
+    expect(formatFirefoxLoopbackUri(raw)).toBe('http://127.0.0.1/mozoauth2/testsubdomain');
+  });
+
+  it('strips trailing slashes from already-formatted loopback URI', () => {
+    const raw = 'http://127.0.0.1/mozoauth2/abcdef123456/';
+    expect(formatFirefoxLoopbackUri(raw)).toBe('http://127.0.0.1/mozoauth2/abcdef123456');
+  });
+
+  it('returns already-formatted loopback URI as-is when there is no trailing slash', () => {
+    const raw = 'http://127.0.0.1/mozoauth2/abcdef123456';
+    expect(formatFirefoxLoopbackUri(raw)).toBe('http://127.0.0.1/mozoauth2/abcdef123456');
+  });
+
+  it('returns non-allizom URLs unchanged', () => {
+    expect(formatFirefoxLoopbackUri('https://example.chromiumapp.org/')).toBe('https://example.chromiumapp.org/');
+    expect(formatFirefoxLoopbackUri('https://custom-domain.com/oauth')).toBe('https://custom-domain.com/oauth');
+  });
+
+  it('returns empty string for falsy or invalid inputs', () => {
+    expect(formatFirefoxLoopbackUri('')).toBe('');
+    expect(formatFirefoxLoopbackUri(null as unknown as string)).toBe('');
+    expect(formatFirefoxLoopbackUri(undefined as unknown as string)).toBe('');
+  });
+});
 
 describe('getOAuthRedirectUri', () => {
   beforeEach(() => {
@@ -71,26 +109,69 @@ describe('getOAuthRedirectUri', () => {
     }
   });
 
-  it('delegates to browser.identity.getRedirectURL in Firefox even if chrome ID is present', () => {
-    vi.stubGlobal('__CHROME_EXTENSION_ID__', 'test-chrome-id');
-    const mockGetRedirectURL = vi.fn().mockReturnValue('https://sha1hash.extensions.allizom.org/');
-    vi.stubGlobal('browser', {
-      identity: {
-        getRedirectURL: mockGetRedirectURL,
-      },
+  describe('Firefox environment', () => {
+    const originalFirefox = import.meta.env.FIREFOX;
+
+    beforeEach(() => {
+      (import.meta.env as Record<string, unknown>).FIREFOX = true;
     });
 
-    // Mock import.meta.env.FIREFOX
-    const originalFirefox = import.meta.env.FIREFOX;
-    (import.meta.env as Record<string, unknown>).FIREFOX = true;
+    afterEach(() => {
+      (import.meta.env as Record<string, unknown>).FIREFOX = originalFirefox;
+    });
 
-    try {
+    it('formats redirect URI as loopback for Google Drive in Firefox', () => {
+      vi.stubGlobal('__CHROME_EXTENSION_ID__', 'test-chrome-id');
+      const mockGetRedirectURL = vi.fn().mockReturnValue('https://sha1hash.extensions.allizom.org/');
+      vi.stubGlobal('browser', {
+        identity: {
+          getRedirectURL: mockGetRedirectURL,
+        },
+      });
+
+      const uri = getOAuthRedirectUri('google-drive');
+      expect(uri).toBe('http://127.0.0.1/mozoauth2/sha1hash');
+      expect(mockGetRedirectURL).toHaveBeenCalled();
+    });
+
+    it('formats redirect URI as loopback when provider is not specified in Firefox', () => {
+      const mockGetRedirectURL = vi.fn().mockReturnValue('https://sha1hash.extensions.allizom.org/');
+      vi.stubGlobal('browser', {
+        identity: {
+          getRedirectURL: mockGetRedirectURL,
+        },
+      });
+
       const uri = getOAuthRedirectUri();
+      expect(uri).toBe('http://127.0.0.1/mozoauth2/sha1hash');
+      expect(mockGetRedirectURL).toHaveBeenCalled();
+    });
+
+    it('retains allizom.org URL for Dropbox in Firefox to prevent regression', () => {
+      const mockGetRedirectURL = vi.fn().mockReturnValue('https://sha1hash.extensions.allizom.org/');
+      vi.stubGlobal('browser', {
+        identity: {
+          getRedirectURL: mockGetRedirectURL,
+        },
+      });
+
+      const uri = getOAuthRedirectUri('dropbox');
       expect(uri).toBe('https://sha1hash.extensions.allizom.org/');
       expect(mockGetRedirectURL).toHaveBeenCalled();
-    } finally {
-      (import.meta.env as Record<string, unknown>).FIREFOX = originalFirefox;
-    }
+    });
+
+    it('retains allizom.org URL for OneDrive in Firefox to prevent regression', () => {
+      const mockGetRedirectURL = vi.fn().mockReturnValue('https://sha1hash.extensions.allizom.org/');
+      vi.stubGlobal('browser', {
+        identity: {
+          getRedirectURL: mockGetRedirectURL,
+        },
+      });
+
+      const uri = getOAuthRedirectUri('onedrive');
+      expect(uri).toBe('https://sha1hash.extensions.allizom.org/');
+      expect(mockGetRedirectURL).toHaveBeenCalled();
+    });
   });
 
   it('returns empty string when identity API is unavailable', () => {
@@ -98,3 +179,4 @@ describe('getOAuthRedirectUri', () => {
     expect(uri).toBe('');
   });
 });
+

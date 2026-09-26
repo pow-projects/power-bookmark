@@ -58,7 +58,7 @@ export class DropboxAdapter extends CloudStorageAdapter {
       throw new Error(i18n.t('adapters.dropbox.invalidAuth'));
     }
 
-    const redirectUri = getOAuthRedirectUri();
+    const redirectUri = getOAuthRedirectUri('dropbox');
     const verifier = this.generateVerifier();
     const challenge = await this.generateChallenge(verifier);
 

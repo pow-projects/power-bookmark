@@ -70,7 +70,7 @@ export class GoogleDriveAdapter extends CloudStorageAdapter {
     }
 
     // 3. New login (launchWebAuthFlow)
-    const redirectUri = getOAuthRedirectUri();
+    const redirectUri = getOAuthRedirectUri('google-drive');
     
     // Generate PKCE Verifier and Challenge
     const verifier = this.generateVerifier();

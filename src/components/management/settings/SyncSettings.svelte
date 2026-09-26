@@ -465,7 +465,7 @@
           bind:clientId={gdriveClientId}
           bind:clientSecret={gdriveClientSecret}
           {isProcessing}
-          {redirectUri}
+          redirectUri={getOAuthRedirectUri('google-drive')}
           on:connect={autoConnectGdrive}
         />
       {:else if provider === 'onedrive'}
@@ -474,7 +474,7 @@
           bind:clientId={onedriveClientId}
           bind:clientSecret={onedriveClientSecret}
           {isProcessing}
-          {redirectUri}
+          redirectUri={getOAuthRedirectUri('onedrive')}
           on:connect={autoConnectOnedrive}
         />
       {:else if provider === 'dropbox'}
@@ -483,7 +483,7 @@
           bind:clientId={dropboxClientId}
           bind:clientSecret={dropboxClientSecret}
           {isProcessing}
-          {redirectUri}
+          redirectUri={getOAuthRedirectUri('dropbox')}
           on:connect={autoConnectDropbox}
         />
       {:else if provider === 'webdav'}

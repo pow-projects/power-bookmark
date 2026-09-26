@@ -58,7 +58,7 @@ export class OneDriveAdapter extends CloudStorageAdapter {
       throw new Error(i18n.t('adapters.onedrive.invalidAuth'));
     }
 
-    const redirectUri = getOAuthRedirectUri();
+    const redirectUri = getOAuthRedirectUri('onedrive');
     const verifier = this.generateVerifier();
     const challenge = await this.generateChallenge(verifier);
 
