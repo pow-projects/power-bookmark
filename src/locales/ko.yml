@@ -284,6 +284,12 @@ bookmarks:
   bulk:
     aiClassify: AI 일괄 분류
     aiSummarize: AI 일괄 요약
+    aiProcess: AI 일괄 처리
+    aiOptions: AI 일괄 처리 옵션
+    aiOptionSummarize: 요약
+    aiOptionTags: 태그
+    aiOptionFolder: 폴더 분류
+    aiSelectAtLeastOne: 최소 1개 이상의 옵션을 선택하세요
     checkLinks: 링크 점검
     delete404: 404 삭제
     deleteSelected: 선택 삭제
@@ -459,8 +465,11 @@ ai:
   noBodyText: 요약할 본문 텍스트가 없습니다.
   configFirst: AI Provider 및 모델 설정을 먼저 완료해주세요.
   noBookmarksToClassify: 분류할 북마크가 없습니다.
+  noBookmarksToProcess: 처리할 북마크가 없습니다.
   tooManyBookmarks: "미분류 북마크가 너무 많습니다 (최대 {max}개)"
   bulkSummarizeStarted: "{count}개 북마크 AI 요약을 시작했습니다."
+  bulkStarted: "{count}개 북마크 AI 일괄 처리를 시작했습니다."
+  selectAtLeastOneOption: 최소 1개 이상의 AI 옵션을 선택해주세요.
   bulkInProgress: 일괄 AI 분석이 진행 중입니다. 완료 후 다시 시도해주세요.
   requestFailed: "AI 요약 요청 실패: {error}"
   analysisCancelled: AI 분석이 취소되었습니다.

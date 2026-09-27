@@ -143,6 +143,37 @@ describe('ai-processor processAiJob', () => {
     expect(commits).toEqual([]); // No updateBookmark call since there are no fields to commit
   });
 
+  it('auto: 폴더 분류만 선택된 경우(autoSummarize=false, autoFolder=true) summary가 없어도 폴더 저장을 정상 수행한다', async () => {
+    vi.stubGlobal('browser', { storage: { local: { set: mockStorageSet } } });
+    mockResolveSuggestedFolderWithRoot.mockResolvedValue({
+      action: 'same-root',
+      targetFolder: { id: 'folder-1', path: '개발자료' },
+      currentRoot: 'Bookmarks bar',
+      targetRoot: 'Bookmarks bar',
+      cleanPath: '개발자료'
+    });
+    mockAnalyzeContent.mockResolvedValue({
+      category: 'Development',
+      suggestedFolderId: 'folder-1',
+      suggestedFolderName: '개발자료',
+      isNewFolderRecommended: false,
+      tags: ['TypeScript'],
+      confidence: 1
+    });
+
+    const outcome = await processAiJob(makeJob({
+      kind: 'auto',
+      payload: samplePayload,
+      folders: sampleFolders,
+      options: { autoSummarize: false, autoTags: false, autoFolder: true }
+    }), new AbortController().signal);
+
+    expect(outcome.ok).toBe(true);
+    expect(mockResolveSuggestedFolderWithRoot).toHaveBeenCalledTimes(1);
+    const commit = mockUpdateBookmark.mock.calls.map(([, d]) => d).find((d) => !d.aiStatus);
+    expect(commit).toEqual({ folderPath: '개발자료' });
+  });
+
   it('auto: 본문 부족(placeholder)이면 요약·폴더 저장을 건너뛴다 (tags만 커밋)', async () => {
     vi.stubGlobal('browser', { storage: { local: { set: mockStorageSet } } });
     mockAnalyzeContent.mockResolvedValue({ ...sampleResult, summary: PLACEHOLDER });

@@ -8,7 +8,7 @@
   import { showToast } from '../../../lib/ui/toast-store';
   import { bulkScanController } from '../../../lib/bulk-scan-controller';
   import { initAiProgressStore } from '../../../lib/ai/ai-progress-store';
-  import { requestBulkAiCategorize, requestBulkAiSummarize, retrySingleAi, cancelSingleAi, cancelBulkAi } from '../../../lib/ai/ai-batch-controller';
+  import { requestBulkAi, requestBulkAiCategorize, requestBulkAiSummarize, retrySingleAi, cancelSingleAi, cancelBulkAi, type BulkAiOptions } from '../../../lib/ai/ai-batch-controller';
   import { formatApproximateAiError } from '../../../lib/ai/ai-error-formatter';
   import { openArchiveBookmark, saveArchiveBookmark, deleteArchiveRecord } from './archive-action-handler';
   import { getArchiveCaptureState, STALE_MS } from '../../../lib/archive/archive-capture-state';
@@ -81,8 +81,10 @@
   let pendingConflictCount = 0;
 
   // AI and scan state
+  let isAiProcessing = false;
   let isAiCategorizing = false;
   let isAiSummarizing = false;
+  $: isAiRunning = isAiProcessing || isAiCategorizing || isAiSummarizing;
   let aiBulkProgress = 0;
   let aiBulkTotal = 0;
   let cleanupAiStore: (() => void) | null = null;
@@ -326,13 +328,16 @@
       if (changes['ai_bulk_progress']) {
         const val = changes['ai_bulk_progress'].newValue;
         const isRunning = val?.status === 'running';
+        isAiProcessing = isRunning && (val?.kind === 'auto' || val?.kind === 'categorize' || val?.kind === 'summarize');
         isAiCategorizing = isRunning && val?.kind === 'categorize';
         isAiSummarizing = isRunning && val?.kind === 'summarize';
         if (val?.done !== undefined) aiBulkProgress = val.done;
         if (val?.total !== undefined) aiBulkTotal = val.total;
-        if (val?.status === 'done' || val?.status === 'completed') {
+        if (val?.status === 'done' || val?.status === 'completed' || val?.status === 'error' || !val) {
+          isAiProcessing = false;
           isAiCategorizing = false;
           isAiSummarizing = false;
+          aiBulkProgress = 0;
           loadBookmarks();
         }
       }
@@ -431,6 +436,7 @@
       browser.storage.local.get('ai_bulk_progress').then((res: any) => {
         const val = res?.ai_bulk_progress;
         if (val?.status === 'running') {
+          isAiProcessing = val.kind === 'auto' || val.kind === 'categorize' || val.kind === 'summarize';
           isAiCategorizing = val.kind === 'categorize';
           isAiSummarizing = val.kind === 'summarize';
           if (val.done !== undefined) aiBulkProgress = val.done;
@@ -656,7 +662,17 @@
     }
   }
 
-  // AI bulk categorization/summarization
+  // AI bulk categorization/summarization/process
+  export async function handleBulkAiProcess(e?: CustomEvent<BulkAiOptions> | BulkAiOptions) {
+    const options = (e as CustomEvent)?.detail || e || { autoSummarize: false, autoTags: true, autoFolder: true };
+    const res = await requestBulkAi(selectedIds, bookmarks, folders, options);
+    if (res.started) {
+      isAiProcessing = true;
+      aiBulkTotal = res.total || 0;
+      aiBulkProgress = 0;
+    }
+  }
+
   export async function handleBulkAiCategorize() {
     const res = await requestBulkAiCategorize(selectedIds, bookmarks, folders);
     if (res.started) {
@@ -668,6 +684,7 @@
   }
 
   async function handleCancelBulkAi() {
+    isAiProcessing = false;
     isAiCategorizing = false;
     isAiSummarizing = false;
     aiBulkProgress = 0;
@@ -983,11 +1000,11 @@
 
     <div class="results-wrapper">
       <div class="bulk-action-sticky-wrapper">
-        {#if $scanState.isScanning || isAiCategorizing || isAiSummarizing}
+        {#if $scanState.isScanning || isAiRunning}
           <div class="progress-bar-container">
             <div
-              class="progress-bar {(isAiCategorizing || isAiSummarizing) && aiBulkProgress === 0 ? 'progress-bar-indeterminate' : ''}"
-              style="width: {(isAiCategorizing || isAiSummarizing) ? (aiBulkProgress / (aiBulkTotal || 1)) * 100 : ($scanState.progress / ($scanState.total || 1)) * 100}%"
+              class="progress-bar {isAiRunning && aiBulkProgress === 0 ? 'progress-bar-indeterminate' : ''}"
+              style="width: {isAiRunning ? (aiBulkProgress / (aiBulkTotal || 1)) * 100 : ($scanState.progress / ($scanState.total || 1)) * 100}%"
             ></div>
           </div>
         {/if}
@@ -999,12 +1016,14 @@
           isScanning={$scanState.isScanning}
           scanProgress={$scanState.progress}
           scanTotal={$scanState.total}
+          {isAiRunning}
           {isAiCategorizing}
           {isAiSummarizing}
           {deadSelectedCount}
           isDeleting={deletingBookmarkIds.size > 0}
           on:toggleSelectAll={handleToggleSelectAll}
           on:clearSelection={handleClearSelection}
+          on:runAi={handleBulkAiProcess}
           on:categorizeAi={handleBulkAiCategorize}
           on:cancelAi={handleCancelBulkAi}
           on:summarizeAi={handleBulkAiSummarize}

@@ -11,6 +11,12 @@
     }
   }
 
+  export async function handleBulkAiProcess(options?: any) {
+    if (bookmarkListEl) {
+      await bookmarkListEl.handleBulkAiProcess(options);
+    }
+  }
+
   export async function handleBulkAiCategorize() {
     if (bookmarkListEl) {
       await bookmarkListEl.handleBulkAiCategorize();

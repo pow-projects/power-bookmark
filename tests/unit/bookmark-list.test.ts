@@ -572,23 +572,22 @@ describe('BookmarkList.svelte - Folder Filter Options & Selection', () => {
     // In-progress: progress bar is visible
     expect(document.querySelector('.progress-bar-container')).toBeTruthy();
 
-    // In BulkActionBar, summarize button (buttons[1]) is loading with spinner
-    const buttons = Array.from(document.querySelectorAll('.bulk-right button')) as HTMLButtonElement[];
-    const categorizeBtn = buttons[0];
-    const summarizeBtn = buttons[1];
+    // In BulkActionBar, the AI split button main action is loading with spinner
+    const mainBtn = document.querySelector('.bulk-right .split-btn-main') as HTMLButtonElement;
+    const toggleBtn = document.querySelector('.bulk-right .split-btn-toggle') as HTMLButtonElement;
 
-    expect(categorizeBtn.disabled).toBe(true);
-    expect(summarizeBtn.querySelector('.spinner-inline')).toBeTruthy();
+    expect(toggleBtn.disabled).toBe(true);
+    expect(mainBtn.querySelector('.spinner-inline')).toBeTruthy();
 
-    // Hover summarize button -> switches to cancel button (btn-danger)
-    summarizeBtn.dispatchEvent(new MouseEvent('mouseenter'));
+    // Hover AI button -> switches to cancel button (btn-danger)
+    mainBtn.dispatchEvent(new MouseEvent('mouseenter'));
     await tick();
 
-    expect(summarizeBtn.classList.contains('btn-danger')).toBe(true);
-    expect(summarizeBtn.textContent).toContain('취소');
+    expect(mainBtn.classList.contains('btn-danger')).toBe(true);
+    expect(mainBtn.textContent).toContain('취소');
 
-    // Click cancel while summarizing
-    await summarizeBtn.click();
+    // Click cancel while running
+    await mainBtn.click();
     await tick();
 
     // After cancellation: AI_ABORT_BULK sent and progress-bar removed

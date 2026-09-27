@@ -37,7 +37,7 @@ export interface EnqueueResult {
   reason?: 'duplicate' | 'not-configured' | 'missing-bookmark';
 }
 
-type BulkAiKind = 'categorize' | 'summarize';
+type BulkAiKind = 'categorize' | 'summarize' | 'auto';
 
 /**
  * Retrieves the effective concurrency limit (1-5, default 2) from active settings.
@@ -124,7 +124,20 @@ async function flushBatchCrossRoot(batchId: string): Promise<void> {
 
 async function publishBatchProgress(job: AiJob, phase: 'start' | 'finish', _outcome?: ProcessOutcome): Promise<void> {
   if (!job.batchId) return; // auto (single item) does not publish progress — card spinner only
-  const bp = batchProgress.get(job.batchId);
+  let bp = batchProgress.get(job.batchId);
+  if (!bp) {
+    // Reconstruct batch progress if SW restarted mid-batch
+    try {
+      const jobs = await db.aiJobs.where('batchId').equals(job.batchId).toArray();
+      if (jobs.length > 0) {
+        const total = jobs.length;
+        const done = jobs.filter((j) => j.status === 'done' || j.status === 'error' || j.status === 'cancelled').length;
+        const kind: BulkAiKind = job.kind === 'summarize' ? 'summarize' : job.kind === 'auto' ? 'auto' : 'categorize';
+        bp = { kind, total, done };
+        batchProgress.set(job.batchId, bp);
+      }
+    } catch { /* ignore */ }
+  }
   if (!bp) return;
   if (phase === 'finish') {
     // finish is counted once per job — prevents double counting on retry (re-insertion into queued)
@@ -189,7 +202,15 @@ export async function initAiQueue(): Promise<void> {
     }
   }
 
-  // 3. Resume draining remaining queue
+  // 3. Clear stranded batch progress if no queued/running batch jobs remain
+  try {
+    const remainingBatchJobs = await db.aiJobs.where('status').equals('queued').filter((j) => !!j.batchId).toArray();
+    if (remainingBatchJobs.length === 0) {
+      await clearBulkProgressStorage();
+    }
+  } catch { /* ignore */ }
+
+  // 4. Resume draining remaining queue
   const queued = await db.aiJobs.where('status').equals('queued').toArray();
   for (const j of queued) await claimActive(j.id);
   void drainQueue();
@@ -255,7 +276,8 @@ export async function enqueueAiJob(input: EnqueueInput): Promise<EnqueueResult> 
 export async function enqueueAiJobs(inputs: EnqueueInput[]): Promise<EnqueueResult[]> {
   if (inputs.length === 0) return [];
   const batchId = crypto.randomUUID();
-  const kind: BulkAiKind = inputs[0].kind === 'summarize' ? 'summarize' : 'categorize';
+  const firstKind = inputs[0]?.kind;
+  const kind: BulkAiKind = firstKind === 'auto' ? 'auto' : firstKind === 'summarize' ? 'summarize' : 'categorize';
   batchProgress.set(batchId, { kind, total: inputs.length, done: 0 });
   batchCrossRoot.set(batchId, []);
   await saveProgress({ kind, total: inputs.length, done: 0, status: 'running', at: Date.now() });

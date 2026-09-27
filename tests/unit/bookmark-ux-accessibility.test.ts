@@ -405,29 +405,35 @@ describe('Bookmark Management UX & Accessibility Fixes', () => {
   });
 
   describe('BulkActionBar.svelte', () => {
-    it('should render AI 일괄 요약 button and dispatch summarizeAi on click', async () => {
+    it('should render AI 일괄 처리 button and dispatch runAi on click', async () => {
       const bar = new BulkActionBar({
         target,
         props: {
           selectedCount: 3,
           totalCount: 10,
           deadSelectedCount: 2,
-          allSelected: false
+          allSelected: false,
+          autoSummarize: true,
+          autoTags: true,
+          autoFolder: true
         }
       });
 
-      const summarizeSpy = vi.fn();
-      bar.$on('summarizeAi', summarizeSpy);
+      const runAiSpy = vi.fn();
+      bar.$on('runAi', runAiSpy);
 
       await tick();
-      const buttons = Array.from(document.querySelectorAll('.bulk-right button')) as HTMLButtonElement[];
-      const summarizeBtn = buttons.find(b => b.textContent?.includes('AI 일괄 요약'));
-      expect(summarizeBtn).toBeTruthy();
+      const aiBtn = document.querySelector('.bulk-right .split-btn-main') as HTMLButtonElement;
+      expect(aiBtn).toBeTruthy();
+      expect(aiBtn.textContent).toContain('AI 일괄 처리');
 
-      await summarizeBtn?.click();
+      await aiBtn.click();
       await tick();
 
-      expect(summarizeSpy).toHaveBeenCalledTimes(1);
+      expect(runAiSpy).toHaveBeenCalledTimes(1);
+      expect(runAiSpy).toHaveBeenCalledWith(expect.objectContaining({
+        detail: { autoSummarize: true, autoTags: true, autoFolder: true }
+      }));
     });
 
     it('should display accurate counts for 404 delete and selected delete buttons', async () => {
@@ -534,7 +540,7 @@ describe('Bookmark Management UX & Accessibility Fixes', () => {
       expect(aiBtn.classList.contains('btn-secondary')).toBe(true);
     });
 
-    it('should show spinner and cancel on hover when isAiSummarizing is true, and disable classify button', async () => {
+    it('should show spinner and cancel on hover when isAiSummarizing is true, and disable toggle button', async () => {
       const bar = new BulkActionBar({
         target,
         props: {
@@ -550,36 +556,66 @@ describe('Bookmark Management UX & Accessibility Fixes', () => {
       bar.$on('cancelAi', cancelSpy);
 
       await tick();
-      const buttons = Array.from(document.querySelectorAll('.bulk-right button')) as HTMLButtonElement[];
-      const classifyBtn = buttons[0];
-      const summarizeBtn = buttons[1];
+      const mainBtn = document.querySelector('.bulk-right .split-btn-main') as HTMLButtonElement;
+      const toggleBtn = document.querySelector('.bulk-right .split-btn-toggle') as HTMLButtonElement;
 
-      expect(classifyBtn.disabled).toBe(true);
-      expect(summarizeBtn).toBeTruthy();
-      expect(summarizeBtn.disabled).toBe(false);
-      expect(summarizeBtn.classList.contains('btn-secondary')).toBe(true);
-      expect(summarizeBtn.classList.contains('btn-danger')).toBe(false);
-      expect(summarizeBtn.querySelector('.spinner-inline')).toBeTruthy();
+      expect(toggleBtn.disabled).toBe(true);
+      expect(mainBtn).toBeTruthy();
+      expect(mainBtn.disabled).toBe(false);
+      expect(mainBtn.classList.contains('btn-secondary')).toBe(true);
+      expect(mainBtn.classList.contains('btn-danger')).toBe(false);
+      expect(mainBtn.querySelector('.spinner-inline')).toBeTruthy();
 
-      // Hover on summarize button -> danger styling and cancel text
-      summarizeBtn.dispatchEvent(new MouseEvent('mouseenter'));
+      // Hover on main button -> danger styling and cancel text
+      mainBtn.dispatchEvent(new MouseEvent('mouseenter'));
       await tick();
 
-      expect(summarizeBtn.classList.contains('btn-danger')).toBe(true);
-      expect(summarizeBtn.textContent).toContain('취소');
+      expect(mainBtn.classList.contains('btn-danger')).toBe(true);
+      expect(mainBtn.textContent).toContain('취소');
 
       // Click while summarizing -> dispatches cancelAi
-      await summarizeBtn.click();
+      await mainBtn.click();
       await tick();
 
       expect(cancelSpy).toHaveBeenCalledTimes(1);
 
       // Mouseleave restores normal loading state
-      summarizeBtn.dispatchEvent(new MouseEvent('mouseleave'));
+      mainBtn.dispatchEvent(new MouseEvent('mouseleave'));
       await tick();
 
-      expect(summarizeBtn.classList.contains('btn-danger')).toBe(false);
-      expect(summarizeBtn.classList.contains('btn-secondary')).toBe(true);
+      expect(mainBtn.classList.contains('btn-danger')).toBe(false);
+      expect(mainBtn.classList.contains('btn-secondary')).toBe(true);
+    });
+
+    it('should open dropdown menu on toggle click and render 3 option checkboxes', async () => {
+      new BulkActionBar({
+        target,
+        props: {
+          selectedCount: 0,
+          totalCount: 10,
+          allSelected: false,
+          autoSummarize: false,
+          autoTags: true,
+          autoFolder: true
+        }
+      });
+
+      await tick();
+      const toggleBtn = document.querySelector('.bulk-right .split-btn-toggle') as HTMLButtonElement;
+      expect(toggleBtn).toBeTruthy();
+
+      // Click toggle
+      await toggleBtn.click();
+      await tick();
+
+      const dropdown = document.querySelector('.ai-dropdown-menu');
+      expect(dropdown).toBeTruthy();
+
+      const checkboxes = Array.from(dropdown!.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+      expect(checkboxes.length).toBe(3);
+      expect(checkboxes[0].checked).toBe(false); // summarize
+      expect(checkboxes[1].checked).toBe(true);  // tags
+      expect(checkboxes[2].checked).toBe(true);  // folder
     });
   });
 

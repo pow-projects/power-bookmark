@@ -304,6 +304,19 @@ export default defineBackground(() => {
       return false;
     }
 
+    if (message?.type === 'AI_BULK_PROCESS' && Array.isArray(message.bookmarkIds)) {
+      sendResponse({ ok: true });
+      enqueueAiJobs(
+        (message.bookmarkIds as number[]).map((id) => ({
+          bookmarkId: id,
+          kind: 'auto',
+          options: message.options,
+          folders: message.folders
+        }))
+      ).catch((e) => console.error('AI bulk process enqueue failed:', e));
+      return false;
+    }
+
     if (message?.type === 'AI_BULK_CATEGORIZE' && Array.isArray(message.bookmarkIds)) {
       sendResponse({ ok: true });
       enqueueAiJobs(

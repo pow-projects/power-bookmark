@@ -57,7 +57,15 @@ export async function processAiJob(job: AiJob, signal: AbortSignal): Promise<Pro
     const folders = (freshFolders && freshFolders.length > 0) ? freshFolders : (job.folders ?? []);
     const currentRoot = getRootFolderName(bookmark.folderPath, folders);
 
-    const taskKind = kind === 'summarize' ? 'summary' : kind === 'categorize' ? 'folder' : 'full';
+    const taskKind = kind === 'summarize'
+      ? 'summary'
+      : kind === 'categorize'
+        ? 'folder'
+        : (options?.autoSummarize && !options?.autoFolder && !options?.autoTags)
+          ? 'summary'
+          : (!options?.autoSummarize && (options?.autoFolder || options?.autoTags))
+            ? 'folder'
+            : 'full';
     const result = await analyzeContent(finalPayload, folders, signal, taskKind, currentRoot);
 
     // Check if bookmark was deleted/aborted after analysis completion (race condition defense)
@@ -119,14 +127,18 @@ async function commitByKind(
   const commit: Partial<Bookmark> = {};
 
   if (kind === 'auto') {
+    let crr: CrossRootReviewData | undefined;
     if (options?.autoSummarize !== false && hasBody) commit.description = result.summary;
-    if (options?.autoTags !== false) commit.tags = result.tags || [];
-    // If body text is insufficient, do not touch folder move/creation
-    if (options?.autoFolder !== false && hasBody) {
-      await applyFolder(bookmarkId, result, folders, bookmark, commit);
+    if (options?.autoTags !== false && Array.isArray(result.tags) && result.tags.length > 0) {
+      commit.tags = result.tags;
+    }
+    // If body text is insufficient, do not touch folder move/creation (only applies when summary is analyzed)
+    const shouldApplyFolder = options?.autoFolder !== false && (options?.autoSummarize === false || result.summary === undefined || hasBody);
+    if (shouldApplyFolder) {
+      crr = await applyFolder(bookmarkId, result, folders, bookmark, commit);
     }
     if (Object.keys(commit).length) await BookmarkManager.updateBookmark(bookmarkId, commit);
-    return undefined;
+    return crr;
   }
 
   if (kind === 'categorize') {

@@ -284,6 +284,12 @@ bookmarks:
   bulk:
     aiClassify: AI Batch Categorize
     aiSummarize: AI Batch Summarize
+    aiProcess: Batch AI
+    aiOptions: Batch AI Options
+    aiOptionSummarize: Summary
+    aiOptionTags: Tags
+    aiOptionFolder: Folder
+    aiSelectAtLeastOne: Select at least one option
     checkLinks: Check Links
     delete404: Delete 404
     deleteSelected: Delete Selected
@@ -459,8 +465,11 @@ ai:
   noBodyText: No body text to summarize.
   configFirst: Please configure AI Provider and Model first.
   noBookmarksToClassify: No bookmarks to categorize.
+  noBookmarksToProcess: No bookmarks to process.
   tooManyBookmarks: "Too many uncategorized bookmarks (max {max})"
   bulkSummarizeStarted: "Started AI summary for {count} bookmark(s)."
+  bulkStarted: "Started batch AI processing for {count} bookmark(s)."
+  selectAtLeastOneOption: Please select at least one AI option.
   bulkInProgress: Bulk AI analysis is in progress. Please try again after completion.
   requestFailed: "AI summary failed: {error}"
   analysisCancelled: AI analysis cancelled.

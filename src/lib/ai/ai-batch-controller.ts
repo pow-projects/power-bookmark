@@ -1,7 +1,64 @@
 import type { Bookmark } from '../db';
 import type { FolderNode } from '../bookmarks/bookmark-manager';
+import { isUncategorizedBookmark } from '../bookmarks/folder-utils';
 import { showToast } from '../ui/toast-store';
 import { isAiConfigured } from './ai-summarizer';
+
+export interface BulkAiOptions {
+  autoSummarize?: boolean;
+  autoTags?: boolean;
+  autoFolder?: boolean;
+}
+
+export async function requestBulkAi(
+  selectedIds: Set<number>,
+  bookmarks: Bookmark[],
+  folders: FolderNode[],
+  options: BulkAiOptions
+): Promise<{ started: boolean; total?: number }> {
+  if (!(await isAiConfigured())) {
+    showToast(i18n.t('ai.configFirst'), 'info');
+    return { started: false };
+  }
+
+  if (!options.autoSummarize && !options.autoTags && !options.autoFolder) {
+    showToast(i18n.t('ai.selectAtLeastOneOption'), 'info');
+    return { started: false };
+  }
+
+  let targetIds: number[];
+  if (selectedIds.size > 0) {
+    targetIds = Array.from(selectedIds);
+  } else if (options.autoFolder && !options.autoSummarize && !options.autoTags) {
+    const uncat = bookmarks.filter((b) => isUncategorizedBookmark(b) || !b.folderPath || b.folderPath === '기타' || b.folderPath === 'Other bookmarks');
+    targetIds = (uncat.length > 0 ? uncat : bookmarks)
+      .map((b) => b.id)
+      .filter((id): id is number => id !== undefined);
+  } else {
+    targetIds = bookmarks.map((b) => b.id).filter((id): id is number => id !== undefined);
+  }
+
+  if (targetIds.length === 0) {
+    showToast(i18n.t('ai.noBookmarksToProcess'), 'info');
+    return { started: false };
+  }
+
+  try {
+    if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
+      await browser.runtime.sendMessage({
+        type: 'AI_BULK_PROCESS',
+        bookmarkIds: targetIds,
+        options,
+        folders
+      });
+      showToast(i18n.t('ai.bulkStarted', { count: targetIds.length }), 'info');
+      return { started: true, total: targetIds.length };
+    }
+  } catch (e: any) {
+    showToast(i18n.t('ai.requestFailed', { error: e.message }), 'error');
+  }
+  return { started: false };
+}
 
 export async function requestBulkAiCategorize(
   selectedIds: Set<number>,
