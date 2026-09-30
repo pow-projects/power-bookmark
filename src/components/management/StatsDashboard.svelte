@@ -1,11 +1,17 @@
+<script context="module" lang="ts">
+  import type { DashboardAllStats } from '../../lib/stats/stats-tracker';
+
+  export let statsCache: DashboardAllStats | null = null;
+
+  export function _resetStatsCacheForTest() {
+    statsCache = null;
+  }
+</script>
+
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import {
-    getSummaryStats,
-    getHostStats,
-    getFolderDistribution,
-    getCategoryVisitStats,
-    getRevisitStats,
+    getDashboardAllStats,
     getTagTimeline,
     type TagTimelineResult,
     type TimelineGranularity
@@ -45,6 +51,11 @@
   let revisitLabels: string[] = [];
   let revisitDatasets: any[] = [];
 
+  // Concurrency & debounce guards
+  let updateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight = false;
+  let pendingRerun = false;
+
   // File size formatting helper
   function formatBytes(bytes: number, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
@@ -55,10 +66,63 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
+  function applyDashboardStats(allStats: DashboardAllStats) {
+    // 1. Summary stats
+    totalBookmarks = allStats.summary.totalBookmarks;
+    archivedCount = allStats.summary.archivedCount;
+    totalArchiveSize = allStats.summary.totalArchiveSize;
+
+    // 2. Top 10 hosts
+    topHosts = allStats.hostStats.slice(0, 10);
+
+    // 3. Top 10 folder distribution
+    topFolders = allStats.folderStats.sort((a, b) => b.count - a.count).slice(0, 10);
+
+    // 4. Most visited category chart
+    const topCategoryStats = allStats.categoryStats.slice(0, 10);
+    categoryLabels = topCategoryStats.map(s => {
+      if (s.folder === '기타') return i18n.t('dashboard.other');
+      return getLeafFolderName(s.folder) || s.folder;
+    });
+    categoryDatasets = [
+      {
+        label: i18n.t('dashboard.visitCount'),
+        data: topCategoryStats.map(s => s.count),
+        backgroundColor: [...CHART_PALETTE],
+        borderRadius: 6
+      }
+    ];
+
+    // 5. Revisit stats and chart data
+    const revisitInfo = allStats.revisitInfo;
+    revisitRate = revisitInfo.revisitRate;
+    const revisitLabelMap: Record<number, string> = {
+      0: i18n.t('dashboard.unvisited'),
+      1: i18n.t('dashboard.visited1'),
+      2: i18n.t('dashboard.visited2to5'),
+      3: i18n.t('dashboard.visited6plus'),
+    };
+    revisitLabels = revisitInfo.distribution.map((d, index) => revisitLabelMap[index] || d.label);
+    revisitDatasets = [
+      {
+        data: revisitInfo.distribution.map(d => d.count),
+        backgroundColor: [...CHART_HEALTH_COLORS]
+      }
+    ];
+
+    // 6. Tag timeline
+    tagTimelineData = allStats.tagTimeline;
+
+    loaded = true;
+  }
+
   async function loadTagTimeline(granularity: TimelineGranularity = timelineGranularity) {
     timelineLoading = true;
     try {
       tagTimelineData = await getTagTimeline(granularity);
+      if (statsCache) {
+        statsCache.tagTimeline = tagTimelineData;
+      }
     } catch (e) {
       console.error('Failed to load tag timeline:', e);
     } finally {
@@ -67,64 +131,34 @@
   }
 
   async function loadDashboardStats() {
+    if (inFlight) {
+      pendingRerun = true;
+      return;
+    }
+    inFlight = true;
     try {
-      loadTagTimeline(timelineGranularity);
-
-      // 1. Load summary stats
-      const summary = await getSummaryStats();
-      totalBookmarks = summary.totalBookmarks;
-      archivedCount = summary.archivedCount;
-      totalArchiveSize = summary.totalArchiveSize;
-
-      // 2. Load Top 10 hosts
-      const hostStats = await getHostStats();
-      topHosts = hostStats.slice(0, 10);
-
-      // 3. Load Top 10 folder distribution (sorted by bookmark count descending)
-      const folderStats = await getFolderDistribution();
-      topFolders = folderStats.sort((a, b) => b.count - a.count).slice(0, 10);
-
-      // 4. Load most visited category (folder) chart
-      const categoryStats = await getCategoryVisitStats();
-      const topCategoryStats = categoryStats.slice(0, 10);
-      categoryLabels = topCategoryStats.map(s => {
-        if (s.folder === '기타') return i18n.t('dashboard.other');
-        return getLeafFolderName(s.folder) || s.folder;
-      });
-      categoryDatasets = [
-        {
-          label: i18n.t('dashboard.visitCount'),
-          data: topCategoryStats.map(s => s.count),
-          backgroundColor: [...CHART_PALETTE],
-          borderRadius: 6
-        }
-      ];
-
-      // 5. Load revisit stats and chart data
-      const revisitInfo = await getRevisitStats();
-      revisitRate = revisitInfo.revisitRate;
-      const revisitLabelMap: Record<number, string> = {
-        0: i18n.t('dashboard.unvisited'),
-        1: i18n.t('dashboard.visited1'),
-        2: i18n.t('dashboard.visited2to5'),
-        3: i18n.t('dashboard.visited6plus'),
-      };
-      revisitLabels = revisitInfo.distribution.map((d, index) => revisitLabelMap[index] || d.label);
-      revisitDatasets = [
-        {
-          data: revisitInfo.distribution.map(d => d.count),
-          backgroundColor: [...CHART_HEALTH_COLORS]
-        }
-      ];
-
-      loaded = true;
+      const allStats = await getDashboardAllStats(timelineGranularity);
+      applyDashboardStats(allStats);
+      statsCache = allStats;
     } catch (e) {
       console.error('Failed to load dashboard stats:', e);
+    } finally {
+      inFlight = false;
+      if (pendingRerun) {
+        pendingRerun = false;
+        loadDashboardStats();
+      }
     }
   }
 
   const handleStatsUpdate = () => {
-    loadDashboardStats();
+    if (updateDebounceTimer) {
+      clearTimeout(updateDebounceTimer);
+    }
+    updateDebounceTimer = setTimeout(() => {
+      updateDebounceTimer = null;
+      loadDashboardStats();
+    }, 300);
   };
 
   // Dashboard row quick-select -> bookmark management deep link transition.
@@ -144,6 +178,9 @@
   }
 
   onMount(() => {
+    if (statsCache) {
+      applyDashboardStats(statsCache);
+    }
     loadDashboardStats();
     if (typeof document !== 'undefined') {
       document.addEventListener('bookmarks-updated', handleStatsUpdate);
@@ -152,6 +189,10 @@
   });
 
   onDestroy(() => {
+    if (updateDebounceTimer) {
+      clearTimeout(updateDebounceTimer);
+      updateDebounceTimer = null;
+    }
     if (typeof document !== 'undefined') {
       document.removeEventListener('bookmarks-updated', handleStatsUpdate);
       document.removeEventListener('sync-resolved', handleStatsUpdate);

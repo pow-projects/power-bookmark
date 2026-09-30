@@ -11,7 +11,7 @@
   export let isProcessing: boolean = false;
 
   const dispatch = createEventDispatcher<{
-    connect: void;
+    connect: { force?: boolean };
   }>();
 
   let autoConnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -30,21 +30,21 @@
   function triggerDebouncedConnect(delayMs = 2200) {
     clearAutoConnectTimer();
     autoConnectTimer = setTimeout(() => {
-      normalizeAndConnect();
+      normalizeAndConnect(false);
     }, delayMs);
   }
 
-  function normalizeAndConnect() {
+  function normalizeAndConnect(force = false) {
     clearAutoConnectTimer();
     if (webdavUrl.trim()) {
       webdavUrl = ensureUrlProtocol(webdavUrl);
     }
-    dispatch('connect');
+    dispatch('connect', { force });
   }
 
-  function triggerImmediateConnect() {
+  function triggerImmediateConnect(force = true) {
     clearAutoConnectTimer();
-    normalizeAndConnect();
+    normalizeAndConnect(force);
   }
 
   function handleUrlInput() {
@@ -64,7 +64,7 @@
         webdavUrl = ensured;
         const normalized = normalizeWebdavAuth(webdavUrl, webdavUsername, webdavPassword);
         if (normalized.password || webdavPassword) {
-          triggerImmediateConnect();
+          triggerImmediateConnect(false);
         }
       }
     }

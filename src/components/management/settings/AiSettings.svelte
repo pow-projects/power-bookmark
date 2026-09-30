@@ -84,14 +84,14 @@
   function decrementConcurrency() {
     if (aiConcurrency > AI_CONCURRENCY_CONFIG.MIN) {
       aiConcurrency -= 1;
-      triggerSave();
+      triggerImmediateSave();
     }
   }
 
   function incrementConcurrency() {
     if (aiConcurrency < AI_CONCURRENCY_CONFIG.MAX) {
       aiConcurrency += 1;
-      triggerSave();
+      triggerImmediateSave();
     }
   }
 
@@ -110,7 +110,7 @@
     } else if (aiConcurrency > AI_CONCURRENCY_CONFIG.MAX) {
       aiConcurrency = AI_CONCURRENCY_CONFIG.MAX;
     }
-    triggerSave();
+    triggerImmediateSave();
   }
 
   let isFetchingModels: boolean = false;
@@ -234,7 +234,7 @@
     isComboboxOpen = false;
     isTypingQuery = false;
     highlightedIndex = -1;
-    triggerSave();
+    triggerImmediateSave();
   }
 
   async function handleComboboxKeydown(e: KeyboardEvent) {
@@ -365,7 +365,7 @@
       aiApiKey = '';
       modelsList = [];
     }
-    triggerSave();
+    triggerImmediateSave();
   }
 
   async function autoFetchModels(silent = false) {
@@ -425,6 +425,17 @@
         aiCustomEndpoint = ensured;
         triggerSave();
       }
+    }
+  }
+
+  function handleKeyOrEndpointEnter() {
+    if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
+    if (aiCustomEndpoint.trim()) {
+      aiCustomEndpoint = ensureUrlProtocol(aiCustomEndpoint);
+    }
+    triggerImmediateSave();
+    if (isApiKeyValid || isLocalOrCustom) {
+      autoFetchModels(false);
     }
   }
 
@@ -524,12 +535,7 @@
             on:blur={handleEndpointBlur}
             on:keydown={(e) => {
               if (e.key === 'Enter') {
-                if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer);
-                if (aiCustomEndpoint.trim()) {
-                  aiCustomEndpoint = ensureUrlProtocol(aiCustomEndpoint);
-                }
-                triggerImmediateSave();
-                if (isApiKeyValid) autoFetchModels(false);
+                handleKeyOrEndpointEnter();
               }
             }}
             placeholder={selectedProviderDef?.defaultEndpoint || DEFAULT_ENDPOINTS[aiProvider] || 'http://localhost:11434/v1'}
@@ -549,6 +555,11 @@
             rows="3"
             bind:value={aiCustomHeaders}
             on:input={handleKeyOrEndpointInput}
+            on:keydown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                handleKeyOrEndpointEnter();
+              }
+            }}
             placeholder={i18n.t('aiSettings.customHeadersPlaceholder')}
           ></textarea>
           <span class="form-hint">{i18n.t('aiSettings.customHeadersHint')}</span>
@@ -566,6 +577,11 @@
             class="form-input"
             bind:value={aiApiKey}
             on:input={handleKeyOrEndpointInput}
+            on:keydown={(e) => {
+              if (e.key === 'Enter') {
+                handleKeyOrEndpointEnter();
+              }
+            }}
             placeholder={aiProvider === 'custom'
               ? i18n.t('aiSettings.apiKeyOptionalPlaceholder')
               : i18n.t('aiSettings.apiKeyPlaceholder', { provider: getProviderDisplayName(selectedProviderDef) })}
@@ -671,7 +687,7 @@
           <span class="setting-title">{i18n.t('aiSettings.autoSummarizeTitle')}</span>
           <span class="setting-description">{i18n.t('aiSettings.autoSummarizeDesc')}</span>
         </div>
-        <ToggleSwitch bind:checked={autoSummarize} on:change={triggerSave} />
+        <ToggleSwitch bind:checked={autoSummarize} on:change={triggerImmediateSave} />
       </div>
 
       <div class="setting-divider"></div>
@@ -681,7 +697,7 @@
           <span class="setting-title">{i18n.t('aiSettings.autoTagsTitle')}</span>
           <span class="setting-description">{i18n.t('aiSettings.autoTagsDesc')}</span>
         </div>
-        <ToggleSwitch bind:checked={autoTags} on:change={triggerSave} />
+        <ToggleSwitch bind:checked={autoTags} on:change={triggerImmediateSave} />
       </div>
 
       <div class="setting-divider"></div>
@@ -691,7 +707,7 @@
           <span class="setting-title">{i18n.t('aiSettings.autoFolderTitle')}</span>
           <span class="setting-description">{i18n.t('aiSettings.autoFolderDesc')}</span>
         </div>
-        <ToggleSwitch bind:checked={autoFolder} on:change={triggerSave} />
+        <ToggleSwitch bind:checked={autoFolder} on:change={triggerImmediateSave} />
       </div>
 
 

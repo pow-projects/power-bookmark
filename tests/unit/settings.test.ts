@@ -434,5 +434,163 @@ describe('Unified Settings Save Engine', () => {
       card.$destroy();
     });
   });
+
+  describe('Settings Switch Immediate Save vs Debounced Text Inputs', () => {
+    beforeEach(async () => {
+      await mockDb.settings.clear();
+      document.body.innerHTML = '';
+    });
+
+    it('ArchiveSettings switches save immediately upon toggle without debounce delay', async () => {
+      const { default: ArchiveSettings } = await import(
+        '../../src/components/management/settings/ArchiveSettings.svelte'
+      );
+      const { tick } = await import('svelte');
+
+      const comp = new ArchiveSettings({ target: document.body });
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      const autoArchiveToggle = document.getElementById('auto-archive') as HTMLButtonElement;
+      expect(autoArchiveToggle).not.toBeNull();
+      expect(autoArchiveToggle.disabled).toBe(false);
+
+      // Click toggle
+      autoArchiveToggle.click();
+      await tick();
+      await new Promise((r) => setTimeout(r, 10));
+      await tick();
+
+      // Should be saved immediately to DB without waiting 300ms
+      const autoSaved = (await mockDb.settings.get('auto_archive'))?.value;
+      expect(autoSaved).toBe(true);
+
+      comp.$destroy();
+    });
+
+    it('AiSettings switches save immediately upon toggle while text input is debounced', async () => {
+      await mockDb.settings.put({ key: 'ai_provider', value: 'openai' });
+
+      const { default: AiSettings } = await import(
+        '../../src/components/management/settings/AiSettings.svelte'
+      );
+      const { tick } = await import('svelte');
+
+      const comp = new AiSettings({ target: document.body });
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      // Find toggles (autoSummarize, autoTags, autoFolder)
+      const toggles = document.querySelectorAll('#ai-settings-section .toggle-switch') as NodeListOf<HTMLButtonElement>;
+      expect(toggles.length).toBeGreaterThanOrEqual(3);
+
+      // Click first toggle (autoSummarize)
+      toggles[0].click();
+      await tick();
+      await new Promise((r) => setTimeout(r, 10));
+      await tick();
+
+      // Should be persisted immediately to DB
+      const summarizeSaved = (await mockDb.settings.get('ai_auto_summarize'))?.value;
+      expect(summarizeSaved).toBe(true);
+
+      comp.$destroy();
+    });
+
+    it('AiSettings allows retrying connection on Enter in api-key input without editing text', async () => {
+      await mockDb.settings.put({ key: 'ai_provider', value: 'openai' });
+      await mockDb.settings.put({ key: 'ai_api_key', value: 'sk-existing-key-12345' });
+
+      const { default: AiSettings } = await import(
+        '../../src/components/management/settings/AiSettings.svelte'
+      );
+      const { tick } = await import('svelte');
+
+      const comp = new AiSettings({ target: document.body });
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      const apiKeyInput = document.getElementById('api-key') as HTMLInputElement;
+      expect(apiKeyInput).not.toBeNull();
+      expect(apiKeyInput.value).toBe('sk-existing-key-12345');
+
+      // Press Enter without modifying any text
+      apiKeyInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await tick();
+      await new Promise((r) => setTimeout(r, 10));
+      await tick();
+
+      // Should save immediately
+      const savedKey = (await mockDb.settings.get('ai_api_key'))?.value;
+      expect(savedKey).toBe('sk-existing-key-12345');
+
+      comp.$destroy();
+    });
+
+    it('SyncProviderOAuth dispatches force reconnect on Enter key without changing credentials', async () => {
+      const { default: SyncProviderOAuth } = await import(
+        '../../src/components/management/settings/SyncProviderOAuth.svelte'
+      );
+      const { tick } = await import('svelte');
+
+      const connectHandler = vi.fn();
+      const comp = new SyncProviderOAuth({
+        target: document.body,
+        props: {
+          provider: 'google-drive',
+          clientId: 'same-client-id',
+          clientSecret: 'same-client-secret'
+        }
+      });
+      comp.$on('connect', connectHandler);
+      await tick();
+
+      const input = document.getElementById('gdrive-client-id') as HTMLInputElement;
+      expect(input).not.toBeNull();
+
+      // Press Enter key without modifying input
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await tick();
+
+      expect(connectHandler).toHaveBeenCalledTimes(1);
+      expect(connectHandler.mock.calls[0][0].detail).toEqual({ force: true });
+
+      comp.$destroy();
+    });
+
+    it('SyncProviderWebDav dispatches force reconnect on Enter key without changing URL', async () => {
+      const { default: SyncProviderWebDav } = await import(
+        '../../src/components/management/settings/SyncProviderWebDav.svelte'
+      );
+      const { tick } = await import('svelte');
+
+      const connectHandler = vi.fn();
+      const comp = new SyncProviderWebDav({
+        target: document.body,
+        props: {
+          webdavUrl: 'http://localhost:8085/',
+          webdavUsername: 'admin',
+          webdavPassword: 'secretpassword'
+        }
+      });
+      comp.$on('connect', connectHandler);
+      await tick();
+
+      const urlInput = document.getElementById('webdav-url') as HTMLInputElement;
+      expect(urlInput).not.toBeNull();
+
+      // Press Enter key without modifying URL
+      urlInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      await tick();
+
+      expect(connectHandler).toHaveBeenCalledTimes(1);
+      expect(connectHandler.mock.calls[0][0].detail).toEqual({ force: true });
+
+      comp.$destroy();
+    });
+  });
 });
 

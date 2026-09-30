@@ -37,16 +37,29 @@ export async function getTombstones(): Promise<Tombstone[]> {
 // INVARIANT: Tombstones are recorded permanently without TTL (see persistTombstones) — false recording
 //   permanently revokes archives/bookmarks for that syncId. Only recordTombstone after deletion intent is confirmed at call site.
 //   (regression: archive-reset-wipe-regression S2 — presence/absence of tombstone is the only gate for deletion propagation)
-export async function recordTombstone(syncId: string, deletedAt: number): Promise<void> {
+export async function recordTombstones(entries: Array<{ syncId: string; deletedAt: number }>): Promise<void> {
+  if (!entries || entries.length === 0) return;
   const tombstones = await getTombstones();
-  // m-4: If already exists, update with latest deletedAt (reflects more recent deletion — conservative direction)
-  const existing = tombstones.find((t) => t.syncId === syncId);
-  if (existing) {
-    if (existing.deletedAt < deletedAt) existing.deletedAt = deletedAt;
-  } else {
-    tombstones.push({ syncId, deletedAt });
+  const tombstoneMap = new Map<string, Tombstone>();
+  for (const t of tombstones) {
+    tombstoneMap.set(t.syncId, t);
+  }
+  for (const { syncId, deletedAt } of entries) {
+    if (!syncId) continue;
+    const existing = tombstoneMap.get(syncId);
+    if (existing) {
+      if (existing.deletedAt < deletedAt) existing.deletedAt = deletedAt;
+    } else {
+      const newT = { syncId, deletedAt };
+      tombstoneMap.set(syncId, newT);
+      tombstones.push(newT);
+    }
   }
   await db.settings.put({ key: TOMBSTONE_KEY, value: tombstones });
+}
+
+export async function recordTombstone(syncId: string, deletedAt: number): Promise<void> {
+  await recordTombstones([{ syncId, deletedAt }]);
 }
 
 export async function removeTombstone(syncId: string): Promise<void> {

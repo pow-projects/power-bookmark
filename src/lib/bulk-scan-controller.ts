@@ -21,6 +21,7 @@ const initialState: BulkScanState = {
 
 export class BulkScanController {
   private cancelRequested = false;
+  private abortController: AbortController | null = null;
   public store = writable<BulkScanState>(initialState);
 
   public async start(
@@ -31,6 +32,7 @@ export class BulkScanController {
     if (bookmarkIds.length === 0) return;
 
     this.cancelRequested = false;
+    this.abortController = new AbortController();
     this.store.update((s) => ({
       ...s,
       isScanning: true,
@@ -76,7 +78,8 @@ export class BulkScanController {
               scanningIds: nextScanning
             };
           });
-        }
+        },
+        this.abortController.signal
       );
 
       this.store.update((s) => {
@@ -109,12 +112,21 @@ export class BulkScanController {
         isScanning: false,
         scanningIds: new Set<number>()
       }));
-      if (onError) onError(e);
+      const isCancelled =
+        this.cancelRequested ||
+        this.abortController?.signal.aborted ||
+        e.name === 'AbortError' ||
+        e.message === 'Cancelled' ||
+        (typeof i18n !== 'undefined' && e.message === i18n.t('health.cancelled'));
+      if (!isCancelled && onError) {
+        onError(e);
+      }
     }
   }
 
   public stop() {
     this.cancelRequested = true;
+    this.abortController?.abort();
   }
 
   public clearResult(bookmarkId: number) {
@@ -133,6 +145,7 @@ export class BulkScanController {
 
   public reset() {
     this.cancelRequested = true;
+    this.abortController?.abort();
     this.store.set(initialState);
   }
 }

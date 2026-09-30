@@ -483,3 +483,285 @@ export async function getTagTimeline(
     hasOlderData
   };
 }
+
+export interface DashboardAllStats {
+  summary: {
+    totalBookmarks: number;
+    deadLinks: number;
+    archivedCount: number;
+    totalArchiveSize: number;
+    lastSyncAt: number | null;
+  };
+  hostStats: { host: string; count: number }[];
+  folderStats: { folder: string; count: number }[];
+  categoryStats: { folder: string; count: number }[];
+  revisitInfo: RevisitStats;
+  tagTimeline: TagTimelineResult;
+}
+
+/**
+ * Single-pass parallel aggregation for the entire management dashboard.
+ * Fetches required tables once in parallel and calculates summary, host stats,
+ * folder distribution, category visits, revisit stats, and tag timeline in one loop.
+ */
+export async function getDashboardAllStats(
+  granularity: TimelineGranularity = 'month'
+): Promise<DashboardAllStats> {
+  const [bookmarks, stats, localArchives, cloudArchiveSetting, syncStates] = await Promise.all([
+    db.bookmarks.toArray(),
+    db.stats.toArray(),
+    db.archivedPages.toArray(),
+    db.settings.get('cloud_archive_index'),
+    db.syncState.toArray()
+  ]);
+
+  let deadLinks = 0;
+  const bookmarkIdToSyncId = new Map<number, string>();
+  const localSyncIds = new Set<string>();
+
+  const hostCounts: { [host: string]: number } = {};
+  const folderCounts: { [folder: string]: number } = {};
+  const urlToFolderMap = new Map<string, string>();
+  const fallbackCategoryVisits: { [folder: string]: number } = {};
+
+  let unvisited = 0;
+  let singleVisit = 0;
+  let revisitLow = 0;
+  let revisitHigh = 0;
+
+  interface BucketInternal {
+    yearMonth: string;
+    timestamp: number;
+    totalBookmarks: number;
+    tagCounts: Map<string, number>;
+  }
+  const bucketMap = new Map<string, BucketInternal>();
+
+  for (const b of bookmarks) {
+    // 1. Summary
+    if (b.httpStatus === 404) {
+      deadLinks++;
+    }
+    if (b.id !== undefined && b.syncId) {
+      bookmarkIdToSyncId.set(b.id, b.syncId);
+    }
+    if (b.syncId) {
+      localSyncIds.add(b.syncId);
+    }
+
+    // 2. Host stats
+    if (b.url) {
+      const h = normalizeHost(b.url);
+      if (h) hostCounts[h] = (hostCounts[h] || 0) + 1;
+    }
+
+    // 3. Folder stats
+    const folder = b.folderPath || '기타';
+    folderCounts[folder] = (folderCounts[folder] || 0) + 1;
+
+    // 4. Category visits
+    if (b.url) {
+      urlToFolderMap.set(b.url, folder);
+    }
+    fallbackCategoryVisits[folder] = (fallbackCategoryVisits[folder] || 0) + (b.visitCount || 0);
+
+    // 5. Revisit info
+    const visits = b.visitCount || 0;
+    if (visits === 0) unvisited++;
+    else if (visits === 1) singleVisit++;
+    else if (visits <= 5) revisitLow++;
+    else revisitHigh++;
+
+    // 6. Tag timeline
+    const ts = getValidTimestamp(b.createdAt, b.modifiedAt);
+    if (ts !== null) {
+      const d = new Date(ts);
+      const year = d.getFullYear();
+      let periodKey: string;
+      let bucketTimestamp: number;
+
+      if (granularity === 'year') {
+        periodKey = String(year);
+        bucketTimestamp = new Date(year, 0, 1).getTime();
+      } else {
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        periodKey = `${year}.${month}`;
+        bucketTimestamp = new Date(year, d.getMonth(), 1).getTime();
+      }
+
+      let bucket = bucketMap.get(periodKey);
+      if (!bucket) {
+        bucket = {
+          yearMonth: periodKey,
+          timestamp: bucketTimestamp,
+          totalBookmarks: 0,
+          tagCounts: new Map<string, number>()
+        };
+        bucketMap.set(periodKey, bucket);
+      }
+      bucket.totalBookmarks += 1;
+
+      if (Array.isArray(b.tags) && b.tags.length > 0) {
+        const seenTags = new Set<string>();
+        for (const rawTag of b.tags) {
+          if (!rawTag || typeof rawTag !== 'string') continue;
+          const cleanTag = rawTag.trim().replace(/^#/, '');
+          if (!cleanTag) continue;
+          if (seenTags.has(cleanTag)) continue;
+          seenTags.add(cleanTag);
+          bucket.tagCounts.set(cleanTag, (bucket.tagCounts.get(cleanTag) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  // Update host counts from stats table
+  for (const s of stats) {
+    const h = normalizeHost(s.host);
+    if (h) hostCounts[h] = (hostCounts[h] || 0) + 1;
+  }
+  const hostStats = Object.keys(hostCounts)
+    .map(host => ({ host, count: hostCounts[host] }))
+    .sort((a, b) => b.count - a.count);
+
+  const folderStats = Object.keys(folderCounts).map(folder => ({
+    folder,
+    count: folderCounts[folder]
+  }));
+
+  // Update category counts from stats table or fallback to visitCount
+  const categoryCounts: { [folder: string]: number } = {};
+  if (stats.length > 0) {
+    for (const s of stats) {
+      const f = urlToFolderMap.get(s.url) || '기타';
+      categoryCounts[f] = (categoryCounts[f] || 0) + 1;
+    }
+  } else {
+    for (const [f, count] of Object.entries(fallbackCategoryVisits)) {
+      categoryCounts[f] = (categoryCounts[f] || 0) + count;
+    }
+  }
+  const categoryStats = Object.keys(categoryCounts)
+    .map(folder => ({ folder, count: categoryCounts[folder] }))
+    .sort((a, b) => b.count - a.count);
+
+  // Revisit info calculation
+  const total = bookmarks.length;
+  let revisitInfo: RevisitStats;
+  if (total === 0) {
+    revisitInfo = {
+      revisitRate: 0,
+      totalBookmarks: 0,
+      revisitedCount: 0,
+      singleVisitedCount: 0,
+      unvisitedCount: 0,
+      distribution: [
+        { label: i18n.t('dashboard.unvisited'), count: 0 },
+        { label: i18n.t('dashboard.visited1'), count: 0 },
+        { label: i18n.t('dashboard.visited2to5'), count: 0 },
+        { label: i18n.t('dashboard.visited6plus'), count: 0 }
+      ]
+    };
+  } else {
+    const revisitedTotal = revisitLow + revisitHigh;
+    const revisitRate = Math.round((revisitedTotal / total) * 1000) / 10;
+    revisitInfo = {
+      revisitRate,
+      totalBookmarks: total,
+      revisitedCount: revisitedTotal,
+      singleVisitedCount: singleVisit,
+      unvisitedCount: unvisited,
+      distribution: [
+        { label: i18n.t('dashboard.unvisited'), count: unvisited },
+        { label: i18n.t('dashboard.visited1'), count: singleVisit },
+        { label: i18n.t('dashboard.visited2to5'), count: revisitLow },
+        { label: i18n.t('dashboard.visited6plus'), count: revisitHigh }
+      ]
+    };
+  }
+
+  // Merge localArchives and cloudEntries for unified archive counts/size
+  const cloudEntries: any[] = cloudArchiveSetting?.value || [];
+  const archiveMap = new Map<string, UnifiedArchiveItem>();
+
+  for (const a of localArchives) {
+    const syncId = bookmarkIdToSyncId.get(a.bookmarkId);
+    const key = syncId || `local_${a.bookmarkId}`;
+    archiveMap.set(key, {
+      key,
+      fileSize: a.fileSize || 0,
+      archivedAt: a.archivedAt || 0
+    });
+  }
+
+  for (const ce of cloudEntries) {
+    if (ce.deleted) continue;
+    if (ce.syncId && !archiveMap.has(ce.syncId)) {
+      if (localSyncIds.has(ce.syncId)) {
+        archiveMap.set(ce.syncId, {
+          key: ce.syncId,
+          fileSize: ce.fileSize || 0,
+          archivedAt: ce.archivedAt || 0
+        });
+      }
+    }
+  }
+
+  const archiveItems = Array.from(archiveMap.values());
+  const archivedCount = archiveItems.length;
+  const totalArchiveSize = archiveItems.reduce((acc, curr) => acc + (curr.fileSize || 0), 0);
+
+  let lastSyncAt: number | null = null;
+  if (syncStates.length > 0) {
+    lastSyncAt = Math.max(...syncStates.map(s => s.lastSyncAt || 0));
+    if (lastSyncAt === 0) lastSyncAt = null;
+  }
+
+  const summary = {
+    totalBookmarks: total,
+    deadLinks,
+    archivedCount,
+    totalArchiveSize,
+    lastSyncAt
+  };
+
+  // Tag timeline buckets
+  const buckets: MonthlyTagBucket[] = [];
+  for (const bucket of bucketMap.values()) {
+    if (bucket.tagCounts.size === 0) {
+      continue;
+    }
+
+    const tags: TagCount[] = Array.from(bucket.tagCounts.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) {
+          return b.count - a.count;
+        }
+        return a.tag.localeCompare(b.tag);
+      });
+
+    buckets.push({
+      yearMonth: bucket.yearMonth,
+      timestamp: bucket.timestamp,
+      totalBookmarks: bucket.totalBookmarks,
+      tags
+    });
+  }
+
+  buckets.sort((a, b) => b.timestamp - a.timestamp);
+
+  const tagTimeline: TagTimelineResult = {
+    buckets,
+    hasOlderData: false
+  };
+
+  return {
+    summary,
+    hostStats,
+    folderStats,
+    categoryStats,
+    revisitInfo,
+    tagTimeline
+  };
+}

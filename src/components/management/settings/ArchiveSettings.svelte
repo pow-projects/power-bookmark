@@ -8,7 +8,6 @@
 
   let autoArchive = false;
   let compressArchive = true;
-  let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let isSaving = false;
   let isLoaded = false;
   let isLoading = true;
@@ -38,12 +37,21 @@
     await loadSettings();
   });
 
+  let savePending = false;
+
   async function saveSettings() {
-    if (!isLoaded || isSaving) return;
+    if (!isLoaded) return;
+    if (isSaving) {
+      savePending = true;
+      return;
+    }
     isSaving = true;
     try {
-      await db.settings.put({ key: 'auto_archive', value: autoArchive });
-      await db.settings.put({ key: 'archive_compress', value: compressArchive });
+      do {
+        savePending = false;
+        await db.settings.put({ key: 'auto_archive', value: autoArchive });
+        await db.settings.put({ key: 'archive_compress', value: compressArchive });
+      } while (savePending);
       showToast(i18n.t('archiveSettings.saved'), 'success');
     } catch (e: any) {
       showToast(i18n.t('archive.saveFailed'), 'error');
@@ -54,8 +62,7 @@
 
   function handleToggleChange() {
     if (!isLoaded) return;
-    if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
-    saveDebounceTimer = setTimeout(saveSettings, 300);
+    saveSettings();
   }
 </script>
 

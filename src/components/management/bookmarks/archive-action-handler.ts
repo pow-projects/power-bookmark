@@ -29,7 +29,19 @@ export async function openArchiveBookmark(
 ): Promise<void> {
   if (!bookmark.id) return;
   try {
-    const archive = archiveMap.get(bookmark.id);
+    let archive = archiveMap.get(bookmark.id);
+    if (!archive?.htmlBlob && typeof db !== 'undefined' && db.archivedPages?.where) {
+      try {
+        const found = await db.archivedPages.where('bookmarkId').equals(bookmark.id).first();
+        if (found) {
+          archive = found;
+          archiveMap.set(bookmark.id, found);
+        }
+      } catch (err) {
+        console.warn('[openArchiveBookmark] Failed to load archive on demand:', err);
+      }
+    }
+
     if (archive && archive.htmlBlob instanceof Blob && archive.htmlBlob.size > 0) {
       openViewer(archive, null, bookmark);
       return;

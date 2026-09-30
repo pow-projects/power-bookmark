@@ -28,6 +28,7 @@
   import FolderTree from '../FolderTree.svelte';
   import CrossRootSection from './CrossRootSection.svelte';
   import BookmarkModals from './BookmarkModals.svelte';
+  import ConfirmModal from '../../shared/ConfirmModal.svelte';
 
   export let folders: FolderNode[] = [];
 
@@ -70,6 +71,8 @@
 
   // Selection state
   let selectedIds = new Set<number>();
+  $: isMultiSelected = selectedIds.size > 1;
+  const getSelectedIds = () => selectedIds;
 
   // Archive operation state
   let savingArchiveIds = new Set<number>();
@@ -95,6 +98,7 @@
   let bookmarkReloadDebounceTimer: any = null;
 
   const scanState = bulkScanController.store;
+  let scanAllConfirmOpen = false;
 
   let crossRootSectionEl: CrossRootSection;
   let modalsEl: BookmarkModals;
@@ -200,11 +204,18 @@
     return 0;
   });
 
-  $: deadSelectedCount = Array.from(selectedIds).filter((id) => {
-    const res = $scanState.healthResults?.get(id);
-    const bm = bookmarks.find((b) => b.id === id);
-    return bm && isBookmarkDead(bm, res);
-  }).length;
+  $: bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]));
+  $: deadSelectedCount = (() => {
+    let count = 0;
+    const health = $scanState.healthResults;
+    for (const id of selectedIds) {
+      const bm = bookmarkMap.get(id);
+      if (bm && isBookmarkDead(bm, health?.get(id))) {
+        count++;
+      }
+    }
+    return count;
+  })();
 
   $: allSelected = filteredBookmarks.length > 0 && filteredBookmarks.every((b) => b.id !== undefined && selectedIds.has(b.id));
 
@@ -254,13 +265,18 @@
         if (archiveIdParam) {
           _initialArchiveOpened = true;
           const targetId = Number(archiveIdParam);
-          const targetBm = bookmarks.find((b) => b.id === targetId);
+          const targetBm = bookmarkMap.get(targetId) || bookmarks.find((b) => b.id === targetId);
           if (targetBm) {
             handleOpenArchive(targetBm);
           } else {
-            const arch = archiveMap.get(targetId);
+            let arch: ArchivedPage | null | undefined = archiveMap.get(targetId);
+            if (!arch?.htmlBlob && typeof db !== 'undefined' && db.archivedPages?.where) {
+              try {
+                arch = await db.archivedPages.where('bookmarkId').equals(targetId).first();
+              } catch {}
+            }
             if (arch) {
-              const bm = bookmarks.find((b) => b.id === arch.bookmarkId) || null;
+              const bm = (arch.bookmarkId !== undefined ? bookmarkMap.get(arch.bookmarkId) : null) || bookmarks.find((b) => b.id === arch!.bookmarkId) || null;
               modalsEl?.openArchiveViewer(arch, null, bm);
             }
           }
@@ -294,9 +310,24 @@
   async function loadArchiveMap() {
     try {
       if (typeof db !== 'undefined' && db.archivedPages) {
-        const list = await db.archivedPages.toArray();
         const m = new Map<number, ArchivedPage>();
-        for (const p of list) m.set(p.bookmarkId, p);
+        let loaded = false;
+        if (typeof db.archivedPages.orderBy === 'function') {
+          try {
+            const keys = await db.archivedPages.orderBy('bookmarkId').uniqueKeys();
+            for (const key of keys) {
+              const bId = Number(key);
+              m.set(bId, { bookmarkId: bId } as ArchivedPage);
+            }
+            loaded = true;
+          } catch {
+            loaded = false;
+          }
+        }
+        if (!loaded) {
+          const list = await db.archivedPages.toArray();
+          for (const p of list) m.set(p.bookmarkId, p);
+        }
         archiveMap = m;
       }
       const cloudIndex = await getCloudArchiveIndexCache();
@@ -482,16 +513,22 @@
 
   function updateTreeMaxHeight() {
     if (!folderTreePanelEl || typeof window === 'undefined') return;
+    if (window.innerWidth <= 768) {
+      treeMaxHeight = '';
+      return;
+    }
     const rect = folderTreePanelEl.getBoundingClientRect();
     // 24px bottom buffer ensures the panel and its scrollbar never overflow or touch the viewport bottom
     const available = window.innerHeight - rect.top - 24;
-    if (available > 160) {
-      treeMaxHeight = `${Math.floor(available)}px`;
-    }
+    treeMaxHeight = `${Math.max(160, Math.floor(available))}px`;
   }
 
   function handleWindowChange() {
     if (typeof window === 'undefined') return;
+    if (window.innerWidth <= 768) {
+      if (treeMaxHeight !== '') treeMaxHeight = '';
+      return;
+    }
     if (treeHeightRaf !== null && typeof cancelAnimationFrame !== 'undefined') {
       cancelAnimationFrame(treeHeightRaf);
     }
@@ -621,10 +658,7 @@
   }
 
   // Link check
-  function handleReviewSelected() {
-    const ids = selectedIds.size > 0
-      ? Array.from(selectedIds)
-      : filteredBookmarks.map((b) => b.id).filter((id): id is number => id !== undefined);
+  function startScan(ids: number[]) {
     if (ids.length === 0) return;
     bulkScanController.start(
       ids,
@@ -639,8 +673,32 @@
         }
         showToast(i18n.t('healthCheck.scanCompleted', { deadCount: errorCount, count: errorCount, errorCount }), 'success');
       },
-      (err) => { showToast(i18n.t('healthCheck.scanError', { error: err.message }), 'error'); }
+      (err: any) => {
+        const isCancelled =
+          err?.name === 'AbortError' ||
+          err?.message === 'Cancelled' ||
+          (typeof i18n !== 'undefined' && err?.message === i18n.t('health.cancelled'));
+        if (!isCancelled) {
+          showToast(i18n.t('healthCheck.scanError', { error: err.message }), 'error');
+        }
+      }
     );
+  }
+
+  function handleReviewSelected() {
+    if (selectedIds.size > 0) {
+      startScan(Array.from(selectedIds));
+    } else if (filteredBookmarks.length > 0) {
+      scanAllConfirmOpen = true;
+    }
+  }
+
+  function handleConfirmScanAll() {
+    scanAllConfirmOpen = false;
+    const allFilteredIds = filteredBookmarks
+      .map((b) => b.id)
+      .filter((id): id is number => id !== undefined);
+    startScan(allFilteredIds);
   }
 
   function handleStopScan() {
@@ -982,7 +1040,7 @@
   {:else}
     <div class="bookmarks-layout">
     {#if folders && folders.length > 0}
-      <div class="folder-tree-panel" bind:this={folderTreePanelEl} style="max-height: {treeMaxHeight};">
+      <div class="folder-tree-panel" bind:this={folderTreePanelEl} style={treeMaxHeight ? `max-height: ${treeMaxHeight};` : ''}>
         <FolderTree
           {folders}
           counts={folderCounts}
@@ -1053,7 +1111,8 @@
               <BookmarkRow
                 bookmark={b}
                 selected={b.id !== undefined && selectedIds.has(b.id)}
-                {selectedIds}
+                isMultiSelected={b.id !== undefined && selectedIds.has(b.id) && isMultiSelected}
+                {getSelectedIds}
                 isDeleting={b.id !== undefined && deletingBookmarkIds.has(b.id)}
                 hasArchive={b.id !== undefined && (archiveMap.has(b.id) || (!!b.syncId && cloudArchiveMap.has(b.syncId)) || (!!b.url && (cloudArchiveUrlMap.has(normalizeUrl(b.url)) || cloudArchiveUrlMap.has(b.url))))}
                 isArchivedLocally={b.id !== undefined && archiveMap.has(b.id)}
@@ -1088,7 +1147,8 @@
             <BookmarkCard
               bookmark={b}
               selected={b.id !== undefined && selectedIds.has(b.id)}
-              {selectedIds}
+              isMultiSelected={b.id !== undefined && selectedIds.has(b.id) && isMultiSelected}
+              {getSelectedIds}
               isDeleting={b.id !== undefined && deletingBookmarkIds.has(b.id)}
               hasArchive={b.id !== undefined && (archiveMap.has(b.id) || (!!b.syncId && cloudArchiveMap.has(b.syncId)) || (!!b.url && (cloudArchiveUrlMap.has(normalizeUrl(b.url)) || cloudArchiveUrlMap.has(b.url))))}
               isArchivedLocally={b.id !== undefined && archiveMap.has(b.id)}
@@ -1136,6 +1196,16 @@
   on:folderCleaned={handleFolderModalCleaned}
   on:folderRenamed={handleFolderModalRenamed}
   on:archiveDeleted={loadArchiveMap}
+/>
+
+<ConfirmModal
+  open={scanAllConfirmOpen}
+  title={i18n.t('healthCheck.scanAllTitle')}
+  message={i18n.t('healthCheck.scanAllMessage', { count: filteredBookmarks.length })}
+  confirmText={i18n.t('healthCheck.scanAllConfirm')}
+  cancelText={i18n.t('common.cancel')}
+  on:confirm={handleConfirmScanAll}
+  on:close={() => { scanAllConfirmOpen = false; }}
 />
 
 <style>
@@ -1235,7 +1305,7 @@
   }
   @media (max-width: 768px) {
     .bookmarks-layout { grid-template-columns: 1fr; }
-    .folder-tree-panel { position: static; max-height: 300px !important; }
+    .folder-tree-panel { position: static; max-height: min(300px, 45dvh) !important; }
     .filter-bar-sticky-wrapper { position: static; padding: 0; margin-top: 0; box-shadow: none; }
     .bulk-action-sticky-wrapper { position: static; padding: 0; margin: 0; }
   }

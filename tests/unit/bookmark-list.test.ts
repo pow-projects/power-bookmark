@@ -1221,6 +1221,12 @@ describe('BookmarkList.svelte - On-demand cloud archive UI', () => {
     await checkLinksBtn?.click();
     await tick();
 
+    const confirmBtn = document.querySelector('.modal-actions button.btn-primary') as HTMLButtonElement;
+    if (confirmBtn) {
+      await confirmBtn.click();
+      await tick();
+    }
+
     expect(startSpy).toHaveBeenCalled();
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('3'), 'success');
 

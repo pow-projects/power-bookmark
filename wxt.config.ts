@@ -184,9 +184,12 @@ export default defineConfig({
               gecko: {
                 ...(process.env.FIREFOX_EXTENSION_ID
                   ? {
-                      id: process.env.FIREFOX_EXTENSION_ID.includes('@') || process.env.FIREFOX_EXTENSION_ID.startsWith('{')
-                        ? process.env.FIREFOX_EXTENSION_ID
-                        : `{${process.env.FIREFOX_EXTENSION_ID}}`
+                      id: (() => {
+                        const trimmed = process.env.FIREFOX_EXTENSION_ID.trim();
+                        if (trimmed.includes('@')) return trimmed;
+                        const clean = trimmed.replace(/^\{+/, '').replace(/\}+$/, '');
+                        return `{${clean}}`;
+                      })()
                     }
                   : {}),
                 strict_min_version: '142.0',

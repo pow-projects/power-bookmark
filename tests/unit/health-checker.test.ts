@@ -8,28 +8,26 @@ import {
 } from '../../src/lib/health/health-checker';
 import type { Bookmark } from '../../src/lib/db';
 
-const mockBookmarkStore = new Map<number, Bookmark>();
+const { mockBookmarkStore, mockUpdate, mockBulkUpdate } = vi.hoisted(() => {
+  const store = new Map<number, Bookmark>();
+  const update = vi.fn().mockResolvedValue(1);
+  const bulkUpdate = vi.fn().mockResolvedValue(1);
+  return { mockBookmarkStore: store, mockUpdate: update, mockBulkUpdate: bulkUpdate };
+});
 
 // Mock db
 vi.mock('../../src/lib/db', () => {
-  const mockUpdate = vi.fn().mockResolvedValue(1);
   const mockGet = vi.fn(async (id: number) => mockBookmarkStore.get(id));
   const mockToArray = vi.fn(async () => Array.from(mockBookmarkStore.values()));
+  const table = {
+    update: mockUpdate,
+    bulkUpdate: mockBulkUpdate,
+    get: mockGet,
+    toArray: mockToArray
+  };
   return {
-    db: {
-      bookmarks: {
-        update: mockUpdate,
-        get: mockGet,
-        toArray: mockToArray
-      }
-    },
-    default: {
-      bookmarks: {
-        update: mockUpdate,
-        get: mockGet,
-        toArray: mockToArray
-      }
-    }
+    db: { bookmarks: table },
+    default: { bookmarks: table }
   };
 });
 
@@ -37,6 +35,8 @@ describe('Health Checker', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockBookmarkStore.clear();
+    mockUpdate.mockClear();
+    mockBulkUpdate.mockClear();
   });
 
   it('should return ok for 200 status', async () => {
@@ -191,8 +191,45 @@ describe('Health Checker', () => {
       expect(isBookmarkBroken({ ...baseBookmark, httpStatus: 100 })).toBe(true);
       expect(isBookmarkBroken({ ...baseBookmark, httpStatus: 200 })).toBe(false);
       expect(isBookmarkBroken({ ...baseBookmark, httpStatus: 301 })).toBe(false);
-      expect(isBookmarkBroken({ ...baseBookmark, httpStatus: 0 })).toBe(false);
+      expect(isBookmarkBroken({ ...baseBookmark, httpStatus: 0 })).toBe(true);
       expect(isBookmarkBroken({ ...baseBookmark, httpStatus: undefined })).toBe(false);
+    });
+  });
+
+  describe('checkBookmarkHealth with AbortSignal and skipDbUpdate', () => {
+    it('throws AbortError and skips DB update when signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const bookmark: Bookmark = { id: 100, url: 'https://example.com', title: 'Test', bookmarkId: 'b100', description: '', folderPath: '', createdAt: 0, modifiedAt: 0, visitCount: 0 };
+
+      await expect(checkBookmarkHealth(bookmark, 5000, controller.signal)).rejects.toThrow();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('throws AbortError and skips DB update when aborted during fetch', async () => {
+      const controller = new AbortController();
+      const mockFetch = vi.fn().mockImplementation(() => {
+        controller.abort();
+        const err = new DOMException('The operation was aborted', 'AbortError');
+        return Promise.reject(err);
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const bookmark: Bookmark = { id: 101, url: 'https://example.com', title: 'Test', bookmarkId: 'b101', description: '', folderPath: '', createdAt: 0, modifiedAt: 0, visitCount: 0 };
+
+      await expect(checkBookmarkHealth(bookmark, 5000, controller.signal)).rejects.toThrow();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('skips DB update when skipDbUpdate is true', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ status: 200, ok: true });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const bookmark: Bookmark = { id: 102, url: 'https://example.com', title: 'Test', bookmarkId: 'b102', description: '', folderPath: '', createdAt: 0, modifiedAt: 0, visitCount: 0 };
+      const res = await checkBookmarkHealth(bookmark, 5000, undefined, true);
+
+      expect(res.status).toBe('ok');
+      expect(mockUpdate).not.toHaveBeenCalled();
     });
   });
 
@@ -236,6 +273,77 @@ describe('Health Checker', () => {
       expect(onBatchResults).toHaveBeenCalledTimes(2); // 10 in first batch, 5 in second batch
       expect(batchCalls[0].length).toBe(10);
       expect(batchCalls[1].length).toBe(5);
+    });
+  });
+
+  describe('checkBookmarksHealth with batch updates and cancellation', () => {
+    it('persists results in batch using db.bookmarks.bulkUpdate', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ status: 200, ok: true });
+      vi.stubGlobal('fetch', mockFetch);
+
+      for (let i = 1; i <= 5; i++) {
+        mockBookmarkStore.set(i, {
+          id: i,
+          url: `https://example.com/${i}`,
+          title: `BM ${i}`,
+          bookmarkId: `b${i}`,
+          description: '',
+          folderPath: '',
+          createdAt: 0,
+          modifiedAt: 0,
+          visitCount: 0
+        });
+      }
+
+      const results = await checkBookmarksHealth([1, 2, 3, 4, 5]);
+      expect(results.length).toBe(5);
+      expect(mockBulkUpdate).toHaveBeenCalledTimes(1);
+      expect(mockBulkUpdate).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ key: 1, changes: expect.objectContaining({ httpStatus: 200 }) }),
+          expect.objectContaining({ key: 5, changes: expect.objectContaining({ httpStatus: 200 }) })
+        ])
+      );
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('cancels processing when AbortSignal is triggered', async () => {
+      const controller = new AbortController();
+      for (let i = 1; i <= 15; i++) {
+        mockBookmarkStore.set(i, {
+          id: i,
+          url: `https://example.com/${i}`,
+          title: `BM ${i}`,
+          bookmarkId: `b${i}`,
+          description: '',
+          folderPath: '',
+          createdAt: 0,
+          modifiedAt: 0,
+          visitCount: 0
+        });
+      }
+
+      const mockFetch = vi.fn().mockResolvedValue({ status: 200, ok: true });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const ids = Array.from({ length: 15 }, (_, i) => i + 1);
+      await expect(
+        checkBookmarksHealth(
+          ids,
+          (current) => {
+            if (current === 10) {
+              controller.abort();
+            }
+          },
+          undefined,
+          undefined,
+          undefined,
+          controller.signal
+        )
+      ).rejects.toThrow();
+
+      // Only the first batch should have been updated before abortion
+      expect(mockBulkUpdate).toHaveBeenCalledTimes(1);
     });
   });
 });

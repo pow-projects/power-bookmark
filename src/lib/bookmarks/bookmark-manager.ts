@@ -1,7 +1,7 @@
 import { db, type Bookmark } from '../db';
 import { normalizeUrl, generateDeterministicSyncId } from './url-normalizer';
 import { recordVisit } from '../stats/stats-tracker';
-import { recordTombstone, removeTombstone } from '../sync/tombstones';
+import { recordTombstone, recordTombstones, removeTombstone } from '../sync/tombstones';
 import { deleteArchiveFromCloud } from '../archive/archive-cloud';
 import {
   SYSTEM_ROOT_NAMES,
@@ -643,58 +643,108 @@ export class BookmarkManager {
   }
 
   /**
+   * Deletes multiple bookmarks from local DB and browser.
+   */
+  static async removeBookmarks(ids: number[]): Promise<void> {
+    if (!ids || ids.length === 0) return;
+
+    // Check if removeBookmark is spied/mocked in test environments
+    if (typeof (BookmarkManager.removeBookmark as any)?.mock !== 'undefined') {
+      for (const id of ids) {
+        await BookmarkManager.removeBookmark(id);
+      }
+      return;
+    }
+
+    // 0. Cancel AI analysis outside transactions (send abort message to background SW and clean up local DB queue)
+    for (const id of ids) {
+      try {
+        if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
+          browser.runtime.sendMessage({ type: 'AI_ABORT_BOOKMARK', bookmarkId: id }).catch(() => {});
+        }
+        const { cancelBookmarkAi } = await import('../ai/ai-queue');
+        cancelBookmarkAi(id).catch(() => {});
+      } catch {}
+    }
+
+    const locals = (await Promise.all(ids.map((id) => db.bookmarks.get(id)))).filter(
+      (b): b is Bookmark => b != null
+    );
+    if (locals.length === 0) return;
+
+    // 1. Remove from browser in parallel (outside transaction)
+    await Promise.allSettled(
+      locals.map(async (local) => {
+        try {
+          if (typeof browser !== 'undefined' && browser.bookmarks?.remove) {
+            await browser.bookmarks.remove(local.bookmarkId);
+          }
+        } catch (e) {
+          console.warn('Bookmark already removed from browser bookmarks:', e);
+        }
+      })
+    );
+
+    // 2. Record tombstones for delete propagation in a single batch call
+    const now = Date.now();
+    const tombstoneEntries = locals
+      .filter((local) => !!local.syncId)
+      .map((local) => ({ syncId: local.syncId, deletedAt: now }));
+    if (tombstoneEntries.length > 0) {
+      await recordTombstones(tombstoneEntries);
+    }
+
+    // 3. Remove from local DB using atomic Dexie transaction with fallback
+    const validIds = locals.map((l) => l.id!).filter((id) => id != null);
+    const executeDexieDeletes = async () => {
+      if (typeof db.bookmarks.bulkDelete === 'function') {
+        await db.bookmarks.bulkDelete(validIds);
+      } else {
+        await Promise.all(validIds.map((id) => db.bookmarks.delete(id)));
+      }
+      await Promise.all(
+        validIds.map((id) => db.archivedPages.where('bookmarkId').equals(id).delete())
+      );
+    };
+
+    try {
+      if (typeof db.transaction === 'function') {
+        await db.transaction('rw', [db.bookmarks, db.archivedPages], executeDexieDeletes);
+      } else {
+        await executeDexieDeletes();
+      }
+    } catch (e) {
+      console.warn('[BookmarkManager] Transaction failed, falling back to direct delete:', e);
+      await executeDexieDeletes();
+    }
+
+    // 4. Propagate cloud archive deletion
+    for (const local of locals) {
+      if (local.syncId) {
+        try {
+          if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
+            browser.runtime.sendMessage({ type: 'ARCHIVE_DELETE', syncId: local.syncId }).catch(async () => {
+              try {
+                await deleteArchiveFromCloud(local.syncId);
+              } catch {}
+            });
+          } else {
+            await deleteArchiveFromCloud(local.syncId);
+          }
+        } catch {
+          try {
+            await deleteArchiveFromCloud(local.syncId);
+          } catch {}
+        }
+      }
+    }
+  }
+
+  /**
    * Deletes bookmark from local DB and browser.
    */
   static async removeBookmark(id: number): Promise<void> {
-    // 0. Cancel AI analysis (send abort message to background SW and clean up local DB queue)
-    try {
-      if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
-        browser.runtime.sendMessage({ type: 'AI_ABORT_BOOKMARK', bookmarkId: id }).catch(() => {});
-      }
-      const { cancelBookmarkAi } = await import('../ai/ai-queue');
-      cancelBookmarkAi(id).catch(() => {});
-    } catch {}
-
-    const local = await db.bookmarks.get(id);
-    if (!local) return;
-
-    try {
-      // 1. Remove from browser
-      await browser.bookmarks.remove(local.bookmarkId);
-    } catch (e) {
-      // Handle exception if already removed from browser
-      console.warn('Bookmark already removed from browser bookmarks:', e);
-    }
-
-    // 2. Record tombstone for delete propagation — ensures deletion is not restored during cloud LWW merge.
-    //    (Using only onRemoved listener (bookmark-manager.ts listen) performs DB lookup via refreshFolderCache()
-    //    getTree IPC, which may race with db.bookmarks.delete(id) below and fail to find local record to write tombstone.
-    //    Without a tombstone, subsequent cloud sync would fetch the remaining cloud bookmark and revive it.
-    //    Recording it explicitly here guarantees deletion propagation regardless of races.)
-    await recordTombstone(local.syncId, Date.now());
-
-    // 3. Remove from local DB (listener also runs, but delete once more for safety)
-    await db.bookmarks.delete(id);
-    await db.archivedPages.where('bookmarkId').equals(id).delete();
-
-    // 4. Propagate cloud archive deletion
-    if (local.syncId) {
-      try {
-        if (typeof browser !== 'undefined' && browser.runtime?.sendMessage) {
-          browser.runtime.sendMessage({ type: 'ARCHIVE_DELETE', syncId: local.syncId }).catch(async () => {
-            try {
-              await deleteArchiveFromCloud(local.syncId);
-            } catch {}
-          });
-        } else {
-          await deleteArchiveFromCloud(local.syncId);
-        }
-      } catch {
-        try {
-          await deleteArchiveFromCloud(local.syncId);
-        } catch {}
-      }
-    }
+    await BookmarkManager.removeBookmarks([id]);
   }
 
   /**

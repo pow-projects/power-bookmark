@@ -63,14 +63,16 @@
   let activeDirectHtml: string | null = null;
   let activeBookmark: Bookmark | null = null;
 
-  $: validSelectedIds = Array.from(selectedIds).filter((id) => bookmarks.some((b) => b.id === id));
+  $: bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]));
+  $: validSelectedIds = Array.from(selectedIds).filter((id) => bookmarkMap.has(id));
   $: archivedSelectedCount = validSelectedIds.filter((id) => archiveMap.has(id)).length;
   $: nonArchivedSelectedCount = validSelectedIds.length - archivedSelectedCount;
-  $: deadSelectedCount = validSelectedIds.filter((id) => {
-    const res = healthResults.get(id);
-    const bm = bookmarks.find((b) => b.id === id);
-    return bm && isBookmarkDead(bm, res);
-  }).length;
+  $: deadSelectedBookmarks = validSelectedIds
+    .map((id) => ({ id, bm: bookmarkMap.get(id), res: healthResults.get(id) }))
+    .filter((item): item is { id: number; bm: Bookmark; res: any } => !!item.bm && isBookmarkDead(item.bm, item.res));
+  $: deadSelectedCount = deadSelectedBookmarks.length;
+  $: archivedDeadCount = deadSelectedBookmarks.filter((item) => archiveMap.has(item.id)).length;
+  $: nonArchivedDeadCount = deadSelectedCount - archivedDeadCount;
 
   // ── Public API ──────────────────────────────────────
   export function openEdit(bookmark: Bookmark) {
@@ -203,60 +205,52 @@
     let targetIds: number[] = [];
     try {
       const deletedIds: number[] = [];
+      let successToastMsg = '';
+
       if (isDeletingSingleId !== null) {
         targetIds = [isDeletingSingleId];
-        dispatch('deleting', { ids: targetIds });
-        BookmarkManager.setSyncMuted(true);
-        try {
-          await BookmarkManager.removeBookmark(isDeletingSingleId);
-          deletedIds.push(isDeletingSingleId);
-        } finally {
-          BookmarkManager.setSyncMuted(false);
-          SyncEngine.triggerDebouncedSync();
-        }
-        showToast(i18n.t('bookmarks.modals.deletedSingle'), 'success');
+        successToastMsg = i18n.t('bookmarks.modals.deletedSingle');
       } else if (deleteDeadOnly) {
         const deadIds = validSelectedIds.filter((id) => {
           const res = healthResults.get(id);
-          const bm = bookmarks.find((b) => b.id === id);
-          return bm && isBookmarkDead(bm, res);
+          const bm = bookmarkMap.get(id);
+          if (!bm || !isBookmarkDead(bm, res)) return false;
+          if (excludeArchived && archiveMap.has(id)) return false;
+          return true;
         });
         targetIds = deadIds;
-        dispatch('deleting', { ids: targetIds });
-        BookmarkManager.setSyncMuted(true);
-        try {
-          for (const id of deadIds) {
-            await BookmarkManager.removeBookmark(id);
-            deletedIds.push(id);
-          }
-        } finally {
-          BookmarkManager.setSyncMuted(false);
-          SyncEngine.triggerDebouncedSync();
+        if (excludeArchived) {
+          successToastMsg = i18n.t('bookmarks.modals.deletedDeadExcludingArchive', { archiveCount: archivedDeadCount, count: deadIds.length });
+        } else {
+          successToastMsg = i18n.t('bookmarks.modals.deletedDead', { count: deadIds.length });
         }
-        showToast(i18n.t('bookmarks.modals.deletedDead', { count: deadIds.length }), 'success');
       } else {
         const ids = validSelectedIds.filter((id) => {
           if (excludeArchived && archiveMap.has(id)) return false;
           return true;
         });
         targetIds = ids;
-        dispatch('deleting', { ids: targetIds });
-        BookmarkManager.setSyncMuted(true);
-        try {
-          for (const id of ids) {
-            await BookmarkManager.removeBookmark(id);
-            deletedIds.push(id);
-          }
-        } finally {
-          BookmarkManager.setSyncMuted(false);
-          SyncEngine.triggerDebouncedSync();
-        }
         if (excludeArchived) {
-          showToast(i18n.t('bookmarks.modals.deletedBulkExcludingArchive', { archiveCount: archivedSelectedCount, count: ids.length }), 'success');
+          successToastMsg = i18n.t('bookmarks.modals.deletedBulkExcludingArchive', { archiveCount: archivedSelectedCount, count: ids.length });
         } else {
-          showToast(i18n.t('bookmarks.modals.deletedBulk', { count: ids.length }), 'success');
+          successToastMsg = i18n.t('bookmarks.modals.deletedBulk', { count: ids.length });
         }
       }
+
+      dispatch('deleting', { ids: targetIds });
+      BookmarkManager.setSyncMuted(true);
+      try {
+        await BookmarkManager.removeBookmarks(targetIds);
+        deletedIds.push(...targetIds);
+      } finally {
+        BookmarkManager.setSyncMuted(false);
+        SyncEngine.triggerDebouncedSync();
+      }
+
+      if (successToastMsg) {
+        showToast(successToastMsg, 'success');
+      }
+
       deleteModalOpen = false;
       isDeletingSingleId = null;
       deleteDeadOnly = false;
@@ -453,9 +447,9 @@
   on:close={() => { if (!isDeleting) isDeletingSingleId = null; }}
 />
 
-<!-- 404 Dead Link Bookmark Bulk Delete Confirmation Modal -->
+<!-- 404 Dead Link Bookmark Bulk Delete Confirmation Modal (no archives) -->
 <ConfirmModal
-  open={deleteDeadOnly}
+  open={deleteDeadOnly && archivedDeadCount === 0}
   title={i18n.t('bookmarks.modals.delete404Title')}
   message={i18n.t('bookmarks.modals.delete404Message', { count: deadSelectedCount })}
   confirmText={i18n.t('common.delete')}
@@ -465,6 +459,42 @@
   on:confirm={() => executeDelete(false)}
   on:close={() => { if (!isDeleting) deleteDeadOnly = false; }}
 />
+
+<!-- 404 Dead Link Bookmark Bulk Delete Confirmation Modal (with archives) -->
+<Modal
+  open={deleteDeadOnly && archivedDeadCount > 0}
+  closable={!isDeleting}
+  on:close={() => { if (!isDeleting) deleteDeadOnly = false; }}
+>
+  <div slot="header" class="modal-header-left">
+    <div class="modal-icon-badge danger">
+      <Icon name="trash-2" size={16} />
+    </div>
+    <h4 id="delete-404-modal-title">{i18n.t('bookmarks.modals.delete404Title')}</h4>
+  </div>
+  <div class="edit-modal">
+    <div class="archive-delete-notice">
+      <p>{i18n.t('bookmarks.modals.delete404ArchiveNotice', { count: deadSelectedCount, archiveCount: archivedDeadCount })}</p>
+      <p>• <strong>{i18n.t('bookmarks.modals.deleteExcludingArchive')}</strong>: {i18n.t('bookmarks.modals.deleteExcludingArchiveDesc', { archiveCount: archivedDeadCount, nonArchiveCount: nonArchivedDeadCount })}</p>
+      <p>• <strong>{i18n.t('bookmarks.modals.deleteAll')}</strong>: {i18n.t('bookmarks.modals.deleteAllDesc', { count: deadSelectedCount })}</p>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" disabled={isDeleting} on:click={() => { if (!isDeleting) deleteDeadOnly = false; }}>{i18n.t('common.cancel')}</button>
+      <button type="button" class="btn btn-secondary" disabled={isDeleting} on:click={() => executeDelete(true)}>
+        {#if isDeleting}
+          <Spinner size={14} variant="inline" />
+        {/if}
+        <span>{i18n.t('bookmarks.modals.deleteExcludingArchive')}</span>
+      </button>
+      <button type="button" class="btn btn-danger" disabled={isDeleting} on:click={() => executeDelete(false)}>
+        {#if isDeleting}
+          <Spinner size={14} variant="inline" />
+        {/if}
+        <span>{i18n.t('bookmarks.modals.deleteAll')}</span>
+      </button>
+    </div>
+  </div>
+</Modal>
 
 <!-- Selected Bookmarks Bulk Delete Confirmation Modal -->
 <Modal

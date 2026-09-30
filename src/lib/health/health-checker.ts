@@ -1,15 +1,4 @@
 import db, { type Bookmark } from '../db';
-import { version as appVersion } from '../../../package.json';
-
-function getAppVersion(): string {
-  try {
-    return (typeof browser !== 'undefined' && browser.runtime?.getManifest?.()?.version) ||
-      (typeof chrome !== 'undefined' && chrome.runtime?.getManifest?.()?.version) ||
-      appVersion;
-  } catch {
-    return appVersion;
-  }
-}
 
 export interface HealthCheckResult {
   bookmarkId: number;
@@ -37,23 +26,48 @@ export function isBookmarkBroken(bookmark: Bookmark, healthResult?: HealthCheckR
   if (healthResult) {
     return healthResult.status !== 'ok';
   }
-  return Boolean(bookmark.httpStatus && (bookmark.httpStatus < 200 || bookmark.httpStatus >= 400));
+  return bookmark.httpStatus != null && (bookmark.httpStatus < 200 || bookmark.httpStatus >= 400);
 }
 
 /**
  * Clears the connection error status for a bookmark in the database, resetting httpStatus to 200 (OK).
  */
-export async function clearBookmarkHealth(bookmarkId: number): Promise<void> {
-  await db.bookmarks.update(bookmarkId, {
+export function clearBookmarkHealth(bookmarkId: number): Promise<void> {
+  return db.bookmarks.update(bookmarkId, {
     httpStatus: 200,
     lastCheckedAt: Date.now()
-  });
+  }).then(() => undefined);
+}
+
+function combineSignals(timeoutSignal: AbortSignal, externalSignal?: AbortSignal): AbortSignal {
+  if (!externalSignal) return timeoutSignal;
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([timeoutSignal, externalSignal]);
+  }
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (timeoutSignal.aborted || externalSignal.aborted) {
+    controller.abort();
+    return controller.signal;
+  }
+  timeoutSignal.addEventListener('abort', onAbort, { once: true });
+  externalSignal.addEventListener('abort', onAbort, { once: true });
+  return controller.signal;
 }
 
 /**
  * Checks the HTTP status of a bookmark URL.
  */
-export async function checkBookmarkHealth(bookmark: Bookmark, timeoutMs = 5000): Promise<HealthCheckResult> {
+export async function checkBookmarkHealth(
+  bookmark: Bookmark,
+  timeoutMs = 5000,
+  signal?: AbortSignal,
+  skipDbUpdate = false
+): Promise<HealthCheckResult> {
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted', 'AbortError');
+  }
+
   const result: HealthCheckResult = {
     bookmarkId: bookmark.id!,
     url: bookmark.url,
@@ -63,13 +77,11 @@ export async function checkBookmarkHealth(bookmark: Bookmark, timeoutMs = 5000):
   const tryGet = async (): Promise<boolean> => {
     const getController = new AbortController();
     const getTimeoutId = setTimeout(() => getController.abort(), timeoutMs);
+    const getSignal = combineSignals(getController.signal, signal);
     try {
       const getResponse = await fetch(bookmark.url, {
         method: 'GET',
-        signal: getController.signal,
-        headers: {
-          'User-Agent': `PowerBookmark/${getAppVersion()}`
-        }
+        signal: getSignal
       });
       result.httpStatus = getResponse.status;
       if (getResponse.status >= 200 && getResponse.status < 400) {
@@ -88,6 +100,9 @@ export async function checkBookmarkHealth(bookmark: Bookmark, timeoutMs = 5000):
       }
       return true;
     } catch (getErr: any) {
+      if (signal?.aborted) {
+        throw getErr.name === 'AbortError' ? getErr : new DOMException('The operation was aborted', 'AbortError');
+      }
       if (getErr.name === 'AbortError') {
         result.status = 'timeout';
       } else {
@@ -101,15 +116,13 @@ export async function checkBookmarkHealth(bookmark: Bookmark, timeoutMs = 5000):
 
   const headController = new AbortController();
   const headTimeoutId = setTimeout(() => headController.abort(), timeoutMs);
+  const headSignal = combineSignals(headController.signal, signal);
 
   try {
     // Phase 1: Check with HEAD request (minimizes server load and bandwidth)
     const response = await fetch(bookmark.url, {
       method: 'HEAD',
-      signal: headController.signal,
-      headers: {
-        'User-Agent': `PowerBookmark/${getAppVersion()}`
-      }
+      signal: headSignal
     });
 
     result.httpStatus = response.status;
@@ -121,6 +134,9 @@ export async function checkBookmarkHealth(bookmark: Bookmark, timeoutMs = 5000):
       await tryGet();
     }
   } catch (error: any) {
+    if (signal?.aborted) {
+      throw error.name === 'AbortError' ? error : new DOMException('The operation was aborted', 'AbortError');
+    }
     if (error.name === 'AbortError') {
       result.status = 'timeout';
     } else {
@@ -131,8 +147,12 @@ export async function checkBookmarkHealth(bookmark: Bookmark, timeoutMs = 5000):
     clearTimeout(headTimeoutId);
   }
 
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted', 'AbortError');
+  }
+
   // Update DB
-  if (bookmark.id !== undefined) {
+  if (!skipDbUpdate && bookmark.id !== undefined && !signal?.aborted) {
     await db.bookmarks.update(bookmark.id, {
       lastCheckedAt: Date.now(),
       httpStatus: result.httpStatus || 0
@@ -147,7 +167,8 @@ export async function checkBookmarkHealth(bookmark: Bookmark, timeoutMs = 5000):
  * Fixed batch size of 10 requests in parallel at a time.
  */
 export async function checkAllBookmarksHealth(
-  onProgress?: (checkedCount: number, totalCount: number) => void
+  onProgress?: (checkedCount: number, totalCount: number) => void,
+  signal?: AbortSignal
 ): Promise<HealthCheckResult[]> {
   const bookmarks = await db.bookmarks.toArray();
   const total = bookmarks.length;
@@ -157,12 +178,37 @@ export async function checkAllBookmarksHealth(
   if (total === 0) return [];
 
   for (let i = 0; i < total; i += batchSize) {
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted', 'AbortError');
+    }
     const batch = bookmarks.slice(i, i + batchSize);
     
     // Process batch in parallel
-    const batchPromises = batch.map(bookmark => checkBookmarkHealth(bookmark));
+    const batchPromises = batch.map(bookmark => checkBookmarkHealth(bookmark, 5000, signal, true));
     const batchResults = await Promise.all(batchPromises);
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted', 'AbortError');
+    }
     results.push(...batchResults);
+
+    const now = Date.now();
+    const updates = batchResults
+      .filter((r) => r && r.bookmarkId !== undefined)
+      .map((r) => ({
+        key: r.bookmarkId,
+        changes: {
+          lastCheckedAt: now,
+          httpStatus: r.httpStatus || 0
+        }
+      }));
+
+    if (updates.length > 0) {
+      if (typeof (db.bookmarks as any).bulkUpdate === 'function') {
+        await (db.bookmarks as any).bulkUpdate(updates);
+      } else {
+        await Promise.all(updates.map(u => db.bookmarks.update(u.key, u.changes)));
+      }
+    }
 
     if (onProgress) {
       onProgress(Math.min(i + batchSize, total), total);
@@ -180,7 +226,8 @@ export async function checkBookmarksHealth(
   onProgress?: (checkedCount: number, totalCount: number) => void,
   shouldCancel?: () => boolean,
   onItemStart?: (id: number) => void,
-  onBatchResults?: (results: HealthCheckResult[]) => void
+  onBatchResults?: (results: HealthCheckResult[]) => void,
+  signal?: AbortSignal
 ): Promise<HealthCheckResult[]> {
   const total = ids.length;
   const results: HealthCheckResult[] = [];
@@ -189,20 +236,44 @@ export async function checkBookmarksHealth(
   if (total === 0) return [];
 
   for (let i = 0; i < total; i += batchSize) {
-    if (shouldCancel && shouldCancel()) throw new Error(typeof i18n !== 'undefined' ? i18n.t('health.cancelled') : 'Cancelled');
+    if (signal?.aborted || (shouldCancel && shouldCancel())) {
+      throw new Error(typeof i18n !== 'undefined' ? i18n.t('health.cancelled') : 'Cancelled');
+    }
     const batchIds = ids.slice(i, i + batchSize);
     const batchPromises = batchIds.map(async (id) => {
+      if (signal?.aborted) return null;
       if (onItemStart) onItemStart(id);
       const bookmark = await db.bookmarks.get(id);
       if (!bookmark) return null;
-      return checkBookmarkHealth(bookmark);
+      return checkBookmarkHealth(bookmark, 5000, signal, true);
     });
     const batchResults = await Promise.all(batchPromises);
+    if (signal?.aborted || (shouldCancel && shouldCancel())) {
+      throw new Error(typeof i18n !== 'undefined' ? i18n.t('health.cancelled') : 'Cancelled');
+    }
     const validBatchResults: HealthCheckResult[] = [];
+    const now = Date.now();
+    const updates: { key: number; changes: { lastCheckedAt: number; httpStatus: number } }[] = [];
+
     for (const r of batchResults) {
       if (r) {
         results.push(r);
         validBatchResults.push(r);
+        updates.push({
+          key: r.bookmarkId,
+          changes: {
+            lastCheckedAt: now,
+            httpStatus: r.httpStatus || 0
+          }
+        });
+      }
+    }
+
+    if (updates.length > 0) {
+      if (typeof (db.bookmarks as any).bulkUpdate === 'function') {
+        await (db.bookmarks as any).bulkUpdate(updates);
+      } else {
+        await Promise.all(updates.map(u => db.bookmarks.update(u.key, u.changes)));
       }
     }
 

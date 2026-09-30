@@ -11,7 +11,7 @@
   export let redirectUri: string = '';
 
   const dispatch = createEventDispatcher<{
-    connect: void;
+    connect: { force?: boolean };
   }>();
 
   let isCopied = false;
@@ -41,14 +41,14 @@
     clearAutoConnectTimer();
     if (!canConnect()) return;
     autoConnectTimer = setTimeout(() => {
-      dispatch('connect');
+      dispatch('connect', { force: false });
     }, delayMs);
   }
 
-  function triggerImmediateConnect() {
+  function triggerImmediateConnect(force = true) {
     clearAutoConnectTimer();
     if (!canConnect()) return;
-    dispatch('connect');
+    dispatch('connect', { force });
   }
 
   function selectRedirectInput(e: MouseEvent) {
@@ -137,8 +137,8 @@
       class="form-input"
       bind:value={clientId} 
       on:input={() => triggerDebouncedConnect()}
-      on:blur={triggerImmediateConnect}
-      on:keydown={(e) => e.key === 'Enter' && triggerImmediateConnect()}
+      on:blur={() => triggerImmediateConnect(false)}
+      on:keydown={(e) => e.key === 'Enter' && triggerImmediateConnect(true)}
       placeholder={config.placeholder} 
     />
     {#if isProcessing}
@@ -159,8 +159,8 @@
     class="form-input"
     bind:value={clientSecret} 
     on:input={() => triggerDebouncedConnect()}
-    on:blur={triggerImmediateConnect}
-    on:keydown={(e) => e.key === 'Enter' && triggerImmediateConnect()}
+    on:blur={() => triggerImmediateConnect(false)}
+    on:keydown={(e) => e.key === 'Enter' && triggerImmediateConnect(true)}
     placeholder={i18n.t('syncOAuth.secretPlaceholder')} 
   />
   <span class="helper-text">{i18n.t('syncOAuth.secretHelper')}</span>

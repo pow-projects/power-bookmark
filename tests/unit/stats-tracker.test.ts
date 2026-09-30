@@ -8,7 +8,8 @@ import {
   getRevisitStats,
   getSummaryStats,
   getValidTimestamp,
-  getTagTimeline
+  getTagTimeline,
+  getDashboardAllStats
 } from '../../src/lib/stats/stats-tracker';
 import db from '../../src/lib/db';
 
@@ -321,6 +322,157 @@ describe('Stats Tracker', () => {
       expect(result.buckets[1].tags).toEqual([
         { tag: 'legacy', count: 1 }
       ]);
+    });
+  });
+
+  describe('getDashboardAllStats', () => {
+    it('aggregates all dashboard data in a single pass', async () => {
+      const d1 = new Date(2026, 8, 2).getTime(); // 2026.09.02
+      const d2 = new Date(2026, 7, 10).getTime(); // 2026.08.10
+
+      const mockBookmarks = [
+        {
+          id: 1,
+          syncId: 'sync-1',
+          url: 'https://google.com/search',
+          folderPath: '개발/웹',
+          visitCount: 3,
+          httpStatus: 200,
+          createdAt: d1,
+          tags: ['svelte', 'testing']
+        },
+        {
+          id: 2,
+          syncId: 'sync-2',
+          url: 'https://github.com/repo',
+          folderPath: '개발/웹',
+          visitCount: 0,
+          httpStatus: 404,
+          createdAt: d1,
+          tags: ['git']
+        },
+        {
+          id: 3,
+          syncId: 'sync-3',
+          url: 'https://news.ycombinator.com',
+          folderPath: '뉴스',
+          visitCount: 1,
+          httpStatus: 200,
+          createdAt: d2,
+          tags: ['news']
+        }
+      ];
+
+      const mockStats = [
+        { host: 'google.com', url: 'https://google.com/search' },
+        { host: 'google.com', url: 'https://google.com/search' },
+        { host: 'github.com', url: 'https://github.com/repo' }
+      ];
+
+      const mockArchived = [
+        { bookmarkId: 1, fileSize: 500, archivedAt: 1000 },
+        { bookmarkId: 2, fileSize: 300, archivedAt: 2000 }
+      ];
+
+      const mockCloudIndex = {
+        key: 'cloud_archive_index',
+        value: [
+          { syncId: 'sync-2', fileSize: 300, archivedAt: 2000 }, // duplicate
+          { syncId: 'sync-3', fileSize: 700, archivedAt: 3000 }  // cloud only
+        ]
+      };
+
+      const mockSyncState = [
+        { lastSyncAt: 5000 }
+      ];
+
+      vi.mocked(db.bookmarks.toArray).mockResolvedValueOnce(mockBookmarks as any);
+      vi.mocked(db.stats.toArray).mockResolvedValueOnce(mockStats as any);
+      vi.mocked(db.archivedPages.toArray).mockResolvedValueOnce(mockArchived as any);
+      vi.mocked(db.settings.get).mockResolvedValueOnce(mockCloudIndex as any);
+      vi.mocked(db.syncState.toArray).mockResolvedValueOnce(mockSyncState as any);
+
+      const result = await getDashboardAllStats('month');
+
+      // 1. Summary verification
+      expect(result.summary.totalBookmarks).toBe(3);
+      expect(result.summary.deadLinks).toBe(1);
+      expect(result.summary.archivedCount).toBe(3);
+      expect(result.summary.totalArchiveSize).toBe(1500);
+      expect(result.summary.lastSyncAt).toBe(5000);
+
+      // 2. Host stats verification
+      expect(result.hostStats).toEqual([
+        { host: 'google.com', count: 3 },
+        { host: 'github.com', count: 2 },
+        { host: 'news.ycombinator.com', count: 1 }
+      ]);
+
+      // 3. Folder stats verification
+      expect(result.folderStats).toEqual([
+        { folder: '개발/웹', count: 2 },
+        { folder: '뉴스', count: 1 }
+      ]);
+
+      // 4. Category visit stats verification (from stats table)
+      expect(result.categoryStats).toEqual([
+        { folder: '개발/웹', count: 3 }
+      ]);
+
+      // 5. Revisit stats verification
+      expect(result.revisitInfo.totalBookmarks).toBe(3);
+      expect(result.revisitInfo.revisitedCount).toBe(1);
+      expect(result.revisitInfo.singleVisitedCount).toBe(1);
+      expect(result.revisitInfo.unvisitedCount).toBe(1);
+      expect(result.revisitInfo.revisitRate).toBe(33.3);
+
+      // 6. Tag timeline verification (month)
+      expect(result.tagTimeline.buckets).toHaveLength(2);
+      expect(result.tagTimeline.buckets[0].yearMonth).toBe('2026.09');
+      expect(result.tagTimeline.buckets[0].totalBookmarks).toBe(2);
+      expect(result.tagTimeline.buckets[1].yearMonth).toBe('2026.08');
+      expect(result.tagTimeline.buckets[1].totalBookmarks).toBe(1);
+    });
+
+    it('falls back to bookmark visitCount for category stats when stats table is empty', async () => {
+      const mockBookmarks = [
+        { url: 'https://a.com', folderPath: 'Frontend', visitCount: 5 },
+        { url: 'https://b.com', folderPath: 'Backend', visitCount: 2 },
+        { url: 'https://c.com', folderPath: 'Frontend', visitCount: 3 }
+      ];
+
+      vi.mocked(db.bookmarks.toArray).mockResolvedValueOnce(mockBookmarks as any);
+      vi.mocked(db.stats.toArray).mockResolvedValueOnce([]);
+      vi.mocked(db.archivedPages.toArray).mockResolvedValueOnce([]);
+      vi.mocked(db.settings.get).mockResolvedValueOnce(undefined as any);
+      vi.mocked(db.syncState.toArray).mockResolvedValueOnce([]);
+
+      const result = await getDashboardAllStats();
+      expect(result.categoryStats).toEqual([
+        { folder: 'Frontend', count: 8 },
+        { folder: 'Backend', count: 2 }
+      ]);
+    });
+
+    it('aggregates tag timeline by year when granularity is "year"', async () => {
+      const d1 = new Date(2026, 1, 10).getTime();
+      const d2 = new Date(2025, 5, 20).getTime();
+
+      const mockBookmarks = [
+        { createdAt: d1, tags: ['svelte'] },
+        { createdAt: d2, tags: ['react'] }
+      ];
+
+      vi.mocked(db.bookmarks.toArray).mockResolvedValueOnce(mockBookmarks as any);
+      vi.mocked(db.stats.toArray).mockResolvedValueOnce([]);
+      vi.mocked(db.archivedPages.toArray).mockResolvedValueOnce([]);
+      vi.mocked(db.settings.get).mockResolvedValueOnce(undefined as any);
+      vi.mocked(db.syncState.toArray).mockResolvedValueOnce([]);
+
+      const result = await getDashboardAllStats('year');
+      expect(result.tagTimeline.buckets).toHaveLength(2);
+      expect(result.tagTimeline.buckets[0].yearMonth).toBe('2026');
+      expect(result.tagTimeline.buckets[1].yearMonth).toBe('2025');
     });
   });
 });

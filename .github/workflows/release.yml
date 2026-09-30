@@ -58,9 +58,16 @@ jobs:
       - name: Submit to Firefox Addon Store
         continue-on-error: true
         run: |
+          if [[ "${FIREFOX_EXTENSION_ID}" == *"@"* ]]; then
+            SUBMIT_ID="${FIREFOX_EXTENSION_ID}"
+          else
+            CLEAN_ID=$(echo "${FIREFOX_EXTENSION_ID}" | tr -d '{}' | xargs)
+            SUBMIT_ID="{{${CLEAN_ID}}}"
+          fi
           npx wxt submit \
             --firefox-zip .output/*-firefox.zip \
-            --firefox-sources-zip .output/*-sources.zip
+            --firefox-sources-zip .output/*-sources.zip \
+            --firefox-extension-id "${SUBMIT_ID}"
         env:
           FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
           FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}

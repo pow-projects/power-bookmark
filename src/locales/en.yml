@@ -310,6 +310,8 @@ bookmarks:
     updateFailed: "Failed to update bookmark: {error}"
     deletedSingle: Bookmark deleted.
     deletedDead: "Deleted {count} broken (404) bookmarks."
+    deletedDeadExcludingArchive: "Preserved {archiveCount} archived items and deleted {count} broken (404) bookmarks."
+    delete404ArchiveNotice: "Among {count} unreachable bookmarks, {archiveCount} have saved offline archives."
     deletedBulk: "Deleted {count} selected bookmarks."
     deletedBulkExcludingArchive: "Deleted {count} bookmarks (excluding {archiveCount} archived items)."
     deleteFailed: "Failed to delete: {error}"
@@ -373,6 +375,9 @@ healthCheck:
   scanCompleted: "Link health check completed: {deadCount} broken link(s) found"
   scanError: "Link health check error: {error}"
   scanStopped: Link health check stopped.
+  scanAllTitle: Check All Bookmark Links
+  scanAllMessage: "No bookmarks are selected. Do you want to check all {count} bookmark(s) in the current list?"
+  scanAllConfirm: Check All
 
 # ── Folder Tree & Cross-Root ──
 folders:

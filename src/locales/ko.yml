@@ -310,6 +310,8 @@ bookmarks:
     updateFailed: "수정 실패: {error}"
     deletedSingle: 북마크가 삭제되었습니다.
     deletedDead: "{count}개의 404 북마크를 삭제했습니다."
+    deletedDeadExcludingArchive: "아카이브가 저장된 {archiveCount}개 항목을 보존하고, {count}개의 404 북마크를 삭제했습니다."
+    delete404ArchiveNotice: "연결 불가능한 {count}개의 북마크 중 {archiveCount}개의 오프라인 아카이브가 저장되어 있습니다."
     deletedBulk: "선택한 북마크 {count}개가 삭제되었습니다."
     deletedBulkExcludingArchive: "아카이브가 저장된 {archiveCount}개 항목을 제외하고 {count}개 북마크를 삭제했습니다."
     deleteFailed: "삭제 실패: {error}"
@@ -373,6 +375,9 @@ healthCheck:
   scanCompleted: "링크 점검 완료: 오류 링크 {deadCount}개 발견"
   scanError: "링크 점검 오류: {error}"
   scanStopped: 링크 점검이 중지되었습니다.
+  scanAllTitle: 전체 북마크 연결 확인
+  scanAllMessage: "선택된 북마크가 없습니다. 현재 목록의 전체 {count}개 북마크에 대해 연결 확인을 진행하시겠습니까?"
+  scanAllConfirm: 전체 확인
 
 # ── Folder Tree & Cross-Root ──
 folders:

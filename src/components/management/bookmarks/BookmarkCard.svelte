@@ -22,7 +22,11 @@
   export let isDownloadingArchive: boolean = false;
   export let savingArchive: boolean = false;
   export let selectedIds: Set<number> | undefined = undefined;
+  export let isMultiSelected: boolean = false;
+  export let getSelectedIds: (() => Set<number>) | undefined = undefined;
   export let isDeleting: boolean = false;
+
+  $: effectiveIsMulti = isMultiSelected || (selected && !!selectedIds && selectedIds.has(bookmark.id) && selectedIds.size > 1);
 
   let isDraggingThis = false;
 
@@ -48,8 +52,9 @@
       return;
     }
 
-    const isMulti = selected && selectedIds && selectedIds.has(bookmark.id) && selectedIds.size > 1;
-    const ids = isMulti ? Array.from(selectedIds!) : [bookmark.id];
+    const isMulti = effectiveIsMulti;
+    const currentSelected = getSelectedIds ? getSelectedIds() : selectedIds;
+    const ids = isMulti && currentSelected ? Array.from(currentSelected) : [bookmark.id];
 
     e.dataTransfer.setData('application/x-powerbookmark-ids', JSON.stringify(ids));
     e.dataTransfer.setData('text/plain', bookmark.url || bookmark.title || String(bookmark.id));
@@ -230,6 +235,8 @@
 
 <style>
   .bookmark-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 180px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);

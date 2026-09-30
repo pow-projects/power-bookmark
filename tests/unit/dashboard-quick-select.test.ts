@@ -45,10 +45,31 @@ vi.mock('../../src/lib/stats/stats-tracker', () => ({
   getFolderDistribution: vi.fn(async () => mockData.folderStats),
   getCategoryVisitStats: vi.fn(async () => []),
   getRevisitStats: vi.fn(async () => ({ revisitRate: 42, distribution: [] })),
-  getTagTimeline: vi.fn(async () => mockData.tagTimeline)
+  getTagTimeline: vi.fn(async () => mockData.tagTimeline),
+  getDashboardAllStats: vi.fn(async () => ({
+    summary: {
+      totalBookmarks: 100,
+      deadLinks: 0,
+      archivedCount: 10,
+      totalArchiveSize: 2048,
+      lastSyncAt: null
+    },
+    hostStats: mockData.hostStats,
+    folderStats: mockData.folderStats,
+    categoryStats: [],
+    revisitInfo: {
+      revisitRate: 42,
+      totalBookmarks: 100,
+      revisitedCount: 42,
+      singleVisitedCount: 10,
+      unvisitedCount: 48,
+      distribution: []
+    },
+    tagTimeline: mockData.tagTimeline
+  }))
 }));
 
-import StatsDashboard from '../../src/components/management/StatsDashboard.svelte';
+import StatsDashboard, { _resetStatsCacheForTest } from '../../src/components/management/StatsDashboard.svelte';
 
 // Default jsdom URL (http://localhost/management.html) pathname
 const BASE_PATH = '/management.html';
@@ -61,9 +82,12 @@ function flush(): Promise<void> {
   });
 }
 
+let mountedComponents: any[] = [];
+
 function mountDashboard() {
   document.body.innerHTML = '';
   const comp: any = new StatsDashboard({ target: document.body });
+  mountedComponents.push(comp);
   return comp;
 }
 
@@ -72,6 +96,11 @@ describe('StatsDashboard quick-select 드릴다운 통합 테스트', () => {
   let popHandler: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    for (const c of mountedComponents) {
+      try { c.$destroy(); } catch {}
+    }
+    mountedComponents = [];
+    _resetStatsCacheForTest();
     mockData.hostStats = [];
     mockData.folderStats = [];
     mockData.tagTimeline = {
@@ -220,7 +249,7 @@ describe('StatsDashboard quick-select 드릴다운 통합 테스트', () => {
   });
 
   it('대시보드 태그 타임라인 년도별/월별 단위 전환 시 getTagTimeline 호출', async () => {
-    const { getTagTimeline } = await import('../../src/lib/stats/stats-tracker');
+    const { getTagTimeline, getDashboardAllStats } = await import('../../src/lib/stats/stats-tracker');
     mountDashboard();
     await flush();
 
@@ -228,12 +257,47 @@ describe('StatsDashboard quick-select 드릴다운 통합 테스트', () => {
     expect(btns.length).toBe(2);
 
     // Initial load was called with default 'month'
-    expect(getTagTimeline).toHaveBeenCalledWith('month');
+    expect(getDashboardAllStats).toHaveBeenCalledWith('month');
 
     // Click '년도별' (yearly) button
     (btns[1] as HTMLButtonElement).click();
     await flush();
 
     expect(getTagTimeline).toHaveBeenCalledWith('year');
+  });
+
+  it('statsCache가 존재하면 onMount 시 비동기 완료 전에도 즉시 렌더링된다', async () => {
+    // First mount to populate cache
+    mountDashboard();
+    await flush();
+
+    // Remount with populated cache
+    const comp = mountDashboard();
+
+    // Synchronously rendered without waiting for flush (loaded is already true)
+    const statCards = document.querySelectorAll('.stat-card');
+    expect(statCards.length).toBe(4);
+    expect(document.querySelector('.loading-state')).toBeNull();
+
+    await flush();
+  });
+
+  it('bookmarks-updated 이벤트 발생 시 300ms 디바운스 적용', async () => {
+    const { getDashboardAllStats } = await import('../../src/lib/stats/stats-tracker');
+    mountDashboard();
+    await flush();
+
+    const callCountBefore = vi.mocked(getDashboardAllStats).mock.calls.length;
+
+    document.dispatchEvent(new CustomEvent('bookmarks-updated'));
+    document.dispatchEvent(new CustomEvent('bookmarks-updated'));
+    document.dispatchEvent(new CustomEvent('bookmarks-updated'));
+
+    expect(vi.mocked(getDashboardAllStats).mock.calls.length).toBe(callCountBefore);
+
+    await new Promise((r) => setTimeout(r, 350));
+    await flush();
+
+    expect(vi.mocked(getDashboardAllStats).mock.calls.length).toBe(callCountBefore + 1);
   });
 });

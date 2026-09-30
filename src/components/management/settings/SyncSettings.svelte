@@ -162,7 +162,7 @@
   }
 
   // Automatic connection verification on Google Drive input completion
-  async function autoConnectGdrive() {
+  async function autoConnectGdrive(force = false) {
     const rawId = gdriveClientId.trim();
     const rawSecret = gdriveClientSecret.trim();
     const currentSig = `${rawId}|${rawSecret}`;
@@ -175,7 +175,7 @@
       await db.settings.put({ key: 'gdrive_client_secret', value: rawSecret });
     }
 
-    if (!rawId || !rawSecret || isProcessing || currentSig === lastAttemptedGdrive) return;
+    if (!rawId || !rawSecret || isProcessing || (!force && currentSig === lastAttemptedGdrive)) return;
     lastAttemptedGdrive = currentSig;
     isProcessing = true;
     try {
@@ -192,6 +192,7 @@
         showToast(i18n.t('syncSettings.gdriveConnected'), 'success');
       }
     } catch (e: any) {
+      lastAttemptedGdrive = '';
       showToast(i18n.t('syncSettings.gdriveFailed', { error: e.message }), 'error');
     } finally {
       isProcessing = false;
@@ -199,11 +200,11 @@
   }
 
   // Automatic connection verification on OneDrive input completion
-  async function autoConnectOnedrive() {
+  async function autoConnectOnedrive(force = false) {
     const rawId = onedriveClientId.trim();
     const rawSecret = onedriveClientSecret.trim();
     const currentSig = `${rawId}|${rawSecret}`;
-    if (!rawId || isProcessing || currentSig === lastAttemptedOnedrive) return;
+    if (!rawId || isProcessing || (!force && currentSig === lastAttemptedOnedrive)) return;
     lastAttemptedOnedrive = currentSig;
     isProcessing = true;
     try {
@@ -224,6 +225,7 @@
         showToast(i18n.t('syncSettings.onedriveConnected'), 'success');
       }
     } catch (e: any) {
+      lastAttemptedOnedrive = '';
       showToast(i18n.t('syncSettings.onedriveFailed', { error: e.message }), 'error');
     } finally {
       isProcessing = false;
@@ -231,11 +233,11 @@
   }
 
   // Automatic connection verification on Dropbox input completion
-  async function autoConnectDropbox() {
+  async function autoConnectDropbox(force = false) {
     const rawId = dropboxClientId.trim();
     const rawSecret = dropboxClientSecret.trim();
     const currentSig = `${rawId}|${rawSecret}`;
-    if (!rawId || isProcessing || currentSig === lastAttemptedDropbox) return;
+    if (!rawId || isProcessing || (!force && currentSig === lastAttemptedDropbox)) return;
     lastAttemptedDropbox = currentSig;
     isProcessing = true;
     try {
@@ -256,6 +258,7 @@
         showToast(i18n.t('syncSettings.dropboxConnected'), 'success');
       }
     } catch (e: any) {
+      lastAttemptedDropbox = '';
       showToast(i18n.t('syncSettings.dropboxFailed', { error: e.message }), 'error');
     } finally {
       isProcessing = false;
@@ -466,7 +469,7 @@
           bind:clientSecret={gdriveClientSecret}
           {isProcessing}
           redirectUri={getOAuthRedirectUri('google-drive')}
-          on:connect={autoConnectGdrive}
+          on:connect={(e) => autoConnectGdrive(e?.detail?.force ?? true)}
         />
       {:else if provider === 'onedrive'}
         <SyncProviderOAuth
@@ -475,7 +478,7 @@
           bind:clientSecret={onedriveClientSecret}
           {isProcessing}
           redirectUri={getOAuthRedirectUri('onedrive')}
-          on:connect={autoConnectOnedrive}
+          on:connect={(e) => autoConnectOnedrive(e?.detail?.force ?? true)}
         />
       {:else if provider === 'dropbox'}
         <SyncProviderOAuth
@@ -484,7 +487,7 @@
           bind:clientSecret={dropboxClientSecret}
           {isProcessing}
           redirectUri={getOAuthRedirectUri('dropbox')}
-          on:connect={autoConnectDropbox}
+          on:connect={(e) => autoConnectDropbox(e?.detail?.force ?? true)}
         />
       {:else if provider === 'webdav'}
         <SyncProviderWebDav
@@ -492,7 +495,7 @@
           bind:webdavUsername
           bind:webdavPassword
           {isProcessing}
-          on:connect={() => autoConnectWebdav(true)}
+          on:connect={(e) => autoConnectWebdav(e?.detail?.force ?? true)}
         />
       {/if}
 

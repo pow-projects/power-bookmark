@@ -194,6 +194,7 @@
     dropLineLeft?: number;
   }
 
+  let treeContainerEl: HTMLElement;
   let treeScrollEl: HTMLElement;
   let isDragging = false;
   let dragNodeId: string | null = null;
@@ -208,6 +209,72 @@
   let dropPosition: DropPosition | null = null; // 'before' | 'inside' | 'after'
   let currentDropTarget: (TreeNode & { depth: number }) | null = null;
   let isInvalidDropZone = false;
+
+  // Auto-scroll controller for folder reordering and bookmark drag
+  let autoScrollRaf: number | null = null;
+  let autoScrollSpeed = 0;
+  let lastPointerPos: { x: number; y: number } | null = null;
+  const SCROLL_ZONE_PX = 36;
+  const MIN_SCROLL_SPEED = 2;
+  const MAX_SCROLL_SPEED = 10;
+
+  function stopAutoScroll() {
+    if (autoScrollRaf !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(autoScrollRaf);
+      autoScrollRaf = null;
+    }
+    autoScrollSpeed = 0;
+  }
+
+  function startAutoScroll() {
+    if (autoScrollRaf !== null) return;
+    if (typeof requestAnimationFrame !== 'undefined') {
+      autoScrollRaf = requestAnimationFrame(autoScrollStep);
+    }
+  }
+
+  function autoScrollStep() {
+    autoScrollRaf = null;
+    if (!treeContainerEl || autoScrollSpeed === 0) return;
+    const prev = treeContainerEl.scrollTop;
+    treeContainerEl.scrollTop += autoScrollSpeed;
+    if (treeContainerEl.scrollTop === prev) {
+      stopAutoScroll();
+      return;
+    }
+    if (isDragging && lastPointerPos) {
+      handlePointerDragMove(lastPointerPos.x, lastPointerPos.y);
+    }
+    if (typeof requestAnimationFrame !== 'undefined') {
+      autoScrollRaf = requestAnimationFrame(autoScrollStep);
+    }
+  }
+
+  function updateAutoScroll(clientX: number, clientY: number) {
+    if (!treeContainerEl) return;
+    const rect = treeContainerEl.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      stopAutoScroll();
+      return;
+    }
+    const topDist = clientY - rect.top;
+    const bottomDist = rect.bottom - clientY;
+
+    if (topDist < SCROLL_ZONE_PX && treeContainerEl.scrollTop > 0) {
+      const ratio = Math.max(0, Math.min(1, 1 - topDist / SCROLL_ZONE_PX));
+      autoScrollSpeed = -(MIN_SCROLL_SPEED + ratio * (MAX_SCROLL_SPEED - MIN_SCROLL_SPEED));
+      startAutoScroll();
+    } else if (
+      bottomDist < SCROLL_ZONE_PX &&
+      treeContainerEl.scrollTop + treeContainerEl.clientHeight < treeContainerEl.scrollHeight
+    ) {
+      const ratio = Math.max(0, Math.min(1, 1 - bottomDist / SCROLL_ZONE_PX));
+      autoScrollSpeed = MIN_SCROLL_SPEED + ratio * (MAX_SCROLL_SPEED - MIN_SCROLL_SPEED);
+      startAutoScroll();
+    } else {
+      stopAutoScroll();
+    }
+  }
 
   function rowElOf(id: string): HTMLElement | null {
     return treeScrollEl?.querySelector<HTMLElement>(`.tree-item[data-folder-id="${id}"]`) ?? null;
@@ -274,6 +341,7 @@
     dragDescendantIds = desc;
     insertPos = dragFromIndex;
     isDragging = true;
+    lastPointerPos = { x: e.clientX, y: e.clientY };
     dropLineTop = null;
     dropLineLeft = 0;
     dropTargetId = null;
@@ -380,11 +448,10 @@
     return null;
   }
 
-  function onDragMove(e: PointerEvent) {
+  function handlePointerDragMove(clientX: number, clientY: number) {
     if (!isDragging || !dragNodeId) return;
-    e.preventDefault();
 
-    const hit = findDropTarget(e.clientX, e.clientY);
+    const hit = findDropTarget(clientX, clientY);
 
     if (hit?.isInvalidZone) {
       isInvalidDropZone = true;
@@ -414,12 +481,22 @@
       dropTargetId = null;
       dropTargetPath = null;
       dropPosition = null;
-      insertPos = computeInsertPos(e.clientY);
+      insertPos = computeInsertPos(clientY);
       updateDropLine();
     }
   }
 
+  function onDragMove(e: PointerEvent) {
+    if (!isDragging || !dragNodeId) return;
+    e.preventDefault();
+    lastPointerPos = { x: e.clientX, y: e.clientY };
+    updateAutoScroll(e.clientX, e.clientY);
+    handlePointerDragMove(e.clientX, e.clientY);
+  }
+
   function onDragEnd(e: PointerEvent) {
+    stopAutoScroll();
+    lastPointerPos = null;
     if (!isDragging || !dragNodeId) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
 
@@ -520,6 +597,8 @@
   }
 
   function onDragCancel(e: PointerEvent) {
+    stopAutoScroll();
+    lastPointerPos = null;
     if (!isDragging || !dragNodeId) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     dragNodeId = null;
@@ -542,6 +621,7 @@
   let hoverExpandTimer: any = null;
 
   onDestroy(() => {
+    stopAutoScroll();
     if (hoverExpandTimer) {
       clearTimeout(hoverExpandTimer);
       hoverExpandTimer = null;
@@ -556,6 +636,7 @@
 
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    updateAutoScroll(e.clientX, e.clientY);
 
     if (dropBookmarkTargetId !== node.id) {
       dropBookmarkTargetId = node.id;
@@ -591,6 +672,7 @@
   }
 
   function handleBookmarkDrop(e: DragEvent, node: TreeNode) {
+    stopAutoScroll();
     if (hoverExpandTimer) {
       clearTimeout(hoverExpandTimer);
       hoverExpandTimer = null;
@@ -617,6 +699,21 @@
     } catch (err) {
       console.error('Failed to parse bookmark drop payload:', err);
     }
+  }
+
+  function handleContainerDragOver(e: DragEvent) {
+    if (!e.dataTransfer) return;
+    const types = e.dataTransfer.types ? Array.from(e.dataTransfer.types) : [];
+    if (!types.includes('application/x-powerbookmark-ids')) return;
+    e.preventDefault();
+    updateAutoScroll(e.clientX, e.clientY);
+  }
+
+  function handleContainerDragLeave(e: DragEvent) {
+    if (e.relatedTarget && treeContainerEl?.contains(e.relatedTarget as Node)) {
+      return;
+    }
+    stopAutoScroll();
   }
 
   /** Enter/Space keyboard selection — operates only when focus is on the row itself (tabindex=0) (prevents collision with chevron button) */
@@ -651,7 +748,15 @@
   }
 </script>
 
-<div class="folder-tree">
+<svelte:window on:dragend={stopAutoScroll} />
+
+<!-- svelte-ignore a11y_no_static_element_interactions a11y-no-static-element-interactions -->
+<div
+  class="folder-tree"
+  bind:this={treeContainerEl}
+  on:dragover={handleContainerDragOver}
+  on:dragleave={handleContainerDragLeave}
+>
   <div class="tree-scroll" role="tree" aria-label={effectiveRootLabel} bind:this={treeScrollEl} class:dragging={isDragging}>
     <!-- All (clear selection) -->
     <div
@@ -779,6 +884,8 @@
     box-sizing: border-box;
     padding: 1rem;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
@@ -792,6 +899,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    padding-bottom: 0.75rem;
   }
 
   .tree-scroll.dragging {
