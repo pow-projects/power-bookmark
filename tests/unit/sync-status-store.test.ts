@@ -360,4 +360,82 @@ describe('SyncStatusStore & Reactive Integration', () => {
       expect(syncBtn.title).toBe('잠시 후 다시 시도해주세요.');
     });
   });
+
+  describe('Cross-Context Event Synchronization', () => {
+    it('refreshes sync status on browser.storage.onChanged sync_last_completed', async () => {
+      let storageCallback: any = null;
+      vi.stubGlobal('browser', {
+        storage: {
+          onChanged: {
+            addListener: vi.fn((cb) => { storageCallback = cb; }),
+            removeListener: vi.fn()
+          }
+        },
+        runtime: {
+          onMessage: {
+            addListener: vi.fn(),
+            removeListener: vi.fn()
+          }
+        }
+      });
+
+      const cleanup = initSyncStatusStore();
+
+      await mockDb.settings.put({ key: 'sync_provider', value: 'webdav' });
+      await mockDb.settings.put({ key: 'webdav_connected', value: true });
+      mockDb.syncState._setLastRecord({ provider: 'webdav', lastSyncAt: 5555, status: 'idle' });
+
+      expect(storageCallback).not.toBeNull();
+      storageCallback({ sync_last_completed: { newValue: 5555 } }, 'local');
+
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+
+      const status = get(syncStatus);
+      expect(status.provider).toBe('webdav');
+      expect(status.lastSyncTime).toBe(5555);
+      expect(status.isConnected).toBe(true);
+
+      cleanup();
+      vi.unstubAllGlobals();
+    });
+
+    it('refreshes sync status on browser.runtime.onMessage SYNC_RESOLVED', async () => {
+      let messageCallback: any = null;
+      vi.stubGlobal('browser', {
+        storage: {
+          onChanged: {
+            addListener: vi.fn(),
+            removeListener: vi.fn()
+          }
+        },
+        runtime: {
+          onMessage: {
+            addListener: vi.fn((cb) => { messageCallback = cb; }),
+            removeListener: vi.fn()
+          }
+        }
+      });
+
+      const cleanup = initSyncStatusStore();
+
+      await mockDb.settings.put({ key: 'sync_provider', value: 'google-drive' });
+      await mockDb.settings.put({ key: 'gdrive_refresh_token', value: 'refresh_tok' });
+      mockDb.syncState._setLastRecord({ provider: 'google-drive', lastSyncAt: 7777, status: 'idle' });
+
+      expect(messageCallback).not.toBeNull();
+      messageCallback({ type: 'SYNC_RESOLVED' });
+
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+
+      const status = get(syncStatus);
+      expect(status.provider).toBe('google-drive');
+      expect(status.lastSyncTime).toBe(7777);
+      expect(status.isConnected).toBe(true);
+
+      cleanup();
+      vi.unstubAllGlobals();
+    });
+  });
 });

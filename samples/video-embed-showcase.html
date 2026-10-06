@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PowerBookmark - 비디오 임베딩 예제 아티클 (Video Embed Showcase)</title>
+  <style>
+    :root {
+      --bg-primary: #ffffff;
+      --text-primary: #1f2937;
+      --text-secondary: #4b5563;
+      --accent: #d6453d;
+      --border: #e5e7eb;
+      --card-bg: #f9fafb;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #111827;
+        --text-primary: #f9fafb;
+        --text-secondary: #9ca3af;
+        --accent: #f0665c;
+        --border: #374151;
+        --card-bg: #1f2937;
+      }
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      color: var(--text-primary);
+      background: var(--bg-primary);
+      margin: 0;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    header {
+      margin-bottom: 40px;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 20px;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+    .meta {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+    section {
+      margin-bottom: 48px;
+      padding: 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 1.3rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    p {
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+    .video-wrapper {
+      position: relative;
+      width: 100%;
+      margin: 16px 0;
+      overflow: hidden;
+      border-radius: 8px;
+    }
+    .video-wrapper.ratio-16-9 {
+      padding-bottom: 56.25%;
+      height: 0;
+    }
+    .video-wrapper.ratio-16-9 iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+    .tiktok-center {
+      display: flex;
+      justify-content: center;
+      margin: 16px 0;
+    }
+    video {
+      width: 100%;
+      max-width: 720px;
+      border-radius: 8px;
+      display: block;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>동영상 임베딩 예제 아티클</h1>
+      <div class="meta">PowerBookmark 아카이브 및 라이브 재생 테스트용 샘플 페이지 | 작성일: 2026.09.30</div>
+      <p>본 페이지는 웹 아티클/블로그 내에 YouTube, TikTok, Vimeo, Dailymotion, KakaoTV, Naver TV, HTML5 비디오가 직접 임베딩된 실제 환경을 테스트하기 위해 구성되었습니다.</p>
+    </header>
+
+    <!-- 1. YouTube Embed -->
+    <section id="youtube-section">
+      <h2>1. YouTube 영상 임베드 (Iframe)</h2>
+      <p>웹 문서 내에 YouTube 표준 플레이어가 임베딩된 경우입니다. 아카이브 후에도 Referer 정책 보정 및 반응형 컨테이너를 통해 정상 재생됩니다.</p>
+      <div class="video-wrapper ratio-16-9">
+        <iframe
+          src="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=0&rel=0"
+          title="YouTube Video Player"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+          allowfullscreen="true"
+          referrerpolicy="strict-origin-when-cross-origin"
+          loading="lazy">
+        </iframe>
+      </div>
+    </section>
+
+    <!-- 2. TikTok Embed -->
+    <section id="tiktok-section">
+      <h2>2. TikTok 영상 임베드 (Iframe & Blockquote)</h2>
+      <p>블로그 및 SNS 아티클에서 틱톡 비디오를 공유할 때 삽입되는 임베드 위젯입니다.</p>
+      <div class="tiktok-center">
+        <iframe
+          src="https://www.tiktok.com/embed/v2/6862153058223197445"
+          width="340"
+          height="600"
+          title="TikTok Video Player"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+          allowfullscreen="true"
+          referrerpolicy="strict-origin-when-cross-origin"
+          loading="lazy"
+          style="border: none; border-radius: 8px;">
+        </iframe>
+      </div>
+    </section>
+
+    <!-- 3. Vimeo Embed -->
+    <section id="vimeo-section">
+      <h2>3. Vimeo 영상 임베드 (Iframe)</h2>
+      <p>디자인/예술 포트폴리오 및 기술 문서에 주로 사용되는 Vimeo 플레이어 임베드입니다.</p>
+      <div class="video-wrapper ratio-16-9">
+        <iframe
+          src="https://player.vimeo.com/video/76979871"
+          title="Vimeo Video Player"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowfullscreen="true"
+          referrerpolicy="strict-origin-when-cross-origin"
+          loading="lazy">
+        </iframe>
+      </div>
+    </section>
+
+    <!-- 4. Dailymotion Embed -->
+    <section id="dailymotion-section">
+      <h2>4. Dailymotion 영상 임베드 (Iframe)</h2>
+      <p>글로벌 뉴스 및 미디어 사이트에서 지원하는 Dailymotion 임베드 플레이어입니다.</p>
+      <div class="video-wrapper ratio-16-9">
+        <iframe
+          src="https://www.dailymotion.com/embed/video/xbbbz9u"
+          title="Dailymotion Video Player"
+          allow="autoplay; fullscreen"
+          allowfullscreen="true"
+          referrerpolicy="strict-origin-when-cross-origin"
+          loading="lazy">
+        </iframe>
+      </div>
+    </section>
+
+    <!-- 5. KakaoTV / Daum Embed -->
+    <section id="kakaotv-section">
+      <h2>5. KakaoTV / Daum 비디오팜 임베드 (Iframe)</h2>
+      <p>다음 뉴스, 티스토리 블로그 등에 삽입되는 카카오TV 클립 플레이어입니다.</p>
+      <div class="video-wrapper ratio-16-9">
+        <iframe
+          src="https://tv.kakao.com/embed/player/cliplink/411000000"
+          title="KakaoTV Video Player"
+          allow="autoplay; fullscreen"
+          allowfullscreen="true"
+          referrerpolicy="strict-origin-when-cross-origin"
+          loading="lazy">
+        </iframe>
+      </div>
+    </section>
+
+    <!-- 6. Naver TV Embed -->
+    <section id="navertv-section">
+      <h2>6. Naver TV 영상 임베드 (Iframe)</h2>
+      <p>네이버 블로그, 포스트, 뉴스 등에 삽입되는 네이버 스마트에디터 비디오 플레이어입니다.</p>
+      <div class="video-wrapper ratio-16-9">
+        <iframe
+          src="https://tv.naver.com/embed/123456"
+          title="Naver TV Video Player"
+          allow="autoplay; fullscreen"
+          allowfullscreen="true"
+          referrerpolicy="strict-origin-when-cross-origin"
+          loading="lazy">
+        </iframe>
+      </div>
+    </section>
+
+    <!-- 7. Native HTML5 Video -->
+    <section id="html5-video-section">
+      <h2>7. 자체 HTML5 &lt;video&gt; 태그</h2>
+      <p>웹사이트에서 외부 플랫폼 없이 직접 서비스하는 네이티브 비디오입니다. 고화질 포스터 이미지와 비디오 스트림이 보존됩니다.</p>
+      <video
+        controls
+        poster="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg">
+        <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4">
+        브라우저가 video 태그를 지원하지 않습니다.
+      </video>
+    </section>
+  </div>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import { shouldSkipIframe } from '../lib/archive/archive-sanitizer';
+import { isVideoEmbedUrl } from '../lib/archive/video-embed-helper';
 import { autoScrollToLoadDeferredContent, prepareLiveDomForCapture } from '../lib/archive/live-dom-preparer';
 import type { ExtractedPagePayload, ExtractionType } from '../lib/ai/types';
 
@@ -36,6 +37,7 @@ export default defineContentScript({
             if (shouldSkipIframe(src)) continue;
             const absoluteSrc = (() => { try { return new URL(src, location.href).href; } catch { return null; } })();
             if (!absoluteSrc) continue;
+            if (isVideoEmbedUrl(absoluteSrc)) continue;
             if (result.iframeSources[absoluteSrc]) continue;
             try {
               const doc = iframe.contentDocument;

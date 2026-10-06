@@ -22,7 +22,7 @@
   import ActionButtons from '../../components/popup/ActionButtons.svelte';
   import Icon from '../../components/shared/Icon.svelte';
   import { formatApproximateAiError } from '../../lib/ai/ai-error-formatter';
-  import { initSyncStatusStore, syncStatus } from '../../lib/sync/sync-status-store';
+  import { initSyncStatusStore, syncStatus, refreshSyncStatus } from '../../lib/sync/sync-status-store';
 
   // Tab data
   let currentTab: chrome.tabs.Tab | null = null;
@@ -66,6 +66,7 @@
   onMount(async () => {
     try {
       unsubscribeSync = initSyncStatusStore();
+      await refreshSyncStatus();
 
       // Load AI settings and configuration status
       try {

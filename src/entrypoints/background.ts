@@ -20,6 +20,135 @@ import {
 import { fetchResourceAsDataUri } from '../lib/archive/resource-fetcher';
 import { enqueueArchiveJob } from '../lib/archive/archive-queue';
 
+async function setupVideoEmbedHeaderRules(): Promise<void> {
+  try {
+    const dnr = (typeof browser !== 'undefined' && (browser as any).declarativeNetRequest)
+      ? (browser as any).declarativeNetRequest
+      : (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : null);
+    if (dnr?.updateDynamicRules) {
+      await dnr.updateDynamicRules({
+        removeRuleIds: [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008],
+        addRules: [
+          {
+            id: 9001,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://www.google.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||youtube.com/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          },
+          {
+            id: 9002,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://www.google.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||youtube-nocookie.com/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          },
+          {
+            id: 9003,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://vimeo.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||vimeo.com/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          },
+          {
+            id: 9004,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://www.dailymotion.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||dailymotion.com/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          },
+          {
+            id: 9005,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://www.tiktok.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||tiktok.com/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          },
+          {
+            id: 9006,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://tv.naver.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||naver.com/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          },
+          {
+            id: 9007,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://tv.kakao.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||kakao.com/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          },
+          {
+            id: 9008,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders',
+              requestHeaders: [
+                { header: 'Referer', operation: 'set', value: 'https://tv.kakao.com/' }
+              ]
+            },
+            condition: {
+              urlFilter: '||daum.net/',
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+            }
+          }
+        ] as any
+      });
+    }
+  } catch (e) {
+    console.warn('[DNR] Failed to register video embed header rules:', e);
+  }
+}
+
 export default defineBackground(() => {
   console.log('PowerBookmark background service worker initializing...');
 
@@ -37,6 +166,9 @@ export default defineBackground(() => {
 
   // 1. Start listening to browser bookmark events (maintain local IndexedDB synchronization)
   BookmarkManager.listen();
+
+  // 1-0. Setup declarativeNetRequest rules to provide valid Referer headers for embedded video players
+  setupVideoEmbedHeaderRules().catch((e) => console.warn('[background] DNR rule setup warning:', e));
 
   // 1-1. Initialize integrated AI analysis queue (restore running job + resume remaining queue on SW restart)
   initAiQueue().catch((e) => console.error('Failed to init AI queue:', e));

@@ -728,6 +728,9 @@ export class SyncEngine {
         }
       });
       // Mark initial sync completed for this provider and record sync state as 'idle'
+      if (currentProvider === 'webdav') {
+        await db.settings.put({ key: 'webdav_connected', value: true });
+      }
       await db.settings.put({ key: `initial_sync_completed_${currentProvider}`, value: true });
       await db.syncState.put({ id: 1, provider: currentProvider, lastSyncAt: Date.now(), status: 'idle' });
       console.log('Cloud database synchronization successful.');

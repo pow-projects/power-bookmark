@@ -79,7 +79,9 @@ async function loadAndRenderArchive() {
     iframe.src = blobUrl;
     iframe.title = pageTitle;
     iframe.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;margin:0;padding:0;display:block;';
-    iframe.setAttribute('sandbox', 'allow-same-origin allow-popups allow-scripts');
+    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-popups allow-forms allow-presentation');
+    iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen');
+    iframe.setAttribute('allowfullscreen', 'true');
     document.body.appendChild(iframe);
   } catch (e: any) {
     console.error('[Viewer] Failed to render archive:', e);

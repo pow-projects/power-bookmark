@@ -415,10 +415,11 @@ export class BookmarkManager {
       });
 
       // Split Transaction Boundary Rule strictly observed:
-      // all tab queries, settings checks, and enqueueAiJob calls happen OUTSIDE db.transaction using dynamic imports.
+      // all tab queries, settings checks, enqueueAiJob, and enqueueArchiveJob calls happen OUTSIDE db.transaction using dynamic imports.
       if (newlyAddedBookmarkId != null && !isExtensionCreated && !isBurst && !BookmarkManager.isImporting) {
         if (/^https?:\/\//i.test(node.url)) {
           let isFromActiveTab = false;
+          let activeTabId: number | undefined;
           try {
             if (typeof browser !== 'undefined' && browser.tabs?.query) {
               const tabs = await browser.tabs.query({ active: true, lastFocusedWindow: true });
@@ -426,41 +427,107 @@ export class BookmarkManager {
               if (activeTab?.url && /^https?:\/\//i.test(activeTab.url)) {
                 if (normalizeUrl(node.url) === normalizeUrl(activeTab.url)) {
                   isFromActiveTab = true;
+                  activeTabId = activeTab.id;
                 }
               }
             }
           } catch (e) {
-            console.warn('[BookmarkManager] Failed to query active tab for AI trigger:', e);
+            console.warn('[BookmarkManager] Failed to query active tab for triggers:', e);
           }
 
-          if (isFromActiveTab) {
+          const targetBookmarkId = newlyAddedBookmarkId;
+          const targetUrl = node.url!;
+          const targetTitle = node.title;
+
+          // AI trigger in independent async branch
+          const aiPromise = (async () => {
+            if (isFromActiveTab) {
+              try {
+                const { getAiSettings, isAiConfigured } = await import('../ai/ai-summarizer');
+                if (await isAiConfigured()) {
+                  const settings = await getAiSettings();
+                  // Browser bookmark auto-analysis is always enabled (runs whenever autoSummarize, autoTags, or autoFolder is true)
+                  const hasAutoAction = !!(settings.autoSummarize || settings.autoTags || settings.autoFolder);
+                  if (hasAutoAction) {
+                    const { enqueueAiJob } = await import('../ai/ai-queue');
+                    await enqueueAiJob({
+                      bookmarkId: targetBookmarkId,
+                      kind: 'auto',
+                      payload: {
+                        title: targetTitle,
+                        url: targetUrl
+                      },
+                      options: {
+                        autoSummarize: settings.autoSummarize,
+                        autoTags: settings.autoTags,
+                        autoFolder: settings.autoFolder
+                      }
+                    });
+                  }
+                }
+              } catch (e) {
+                console.error('[BookmarkManager] Failed to trigger browser native bookmark AI:', e);
+              }
+            }
+          })();
+
+          // Auto-Archive trigger in independent async branch
+          const archivePromise = (async () => {
             try {
-              const { getAiSettings, isAiConfigured } = await import('../ai/ai-summarizer');
-              if (await isAiConfigured()) {
-                const settings = await getAiSettings();
-                // Browser bookmark auto-analysis is always enabled (runs whenever autoSummarize, autoTags, or autoFolder is true)
-                const hasAutoAction = !!(settings.autoSummarize || settings.autoTags || settings.autoFolder);
-                if (hasAutoAction) {
-                  const { enqueueAiJob } = await import('../ai/ai-queue');
-                  await enqueueAiJob({
-                    bookmarkId: newlyAddedBookmarkId,
-                    kind: 'auto',
-                    payload: {
-                      title: node.title,
-                      url: node.url
-                    },
-                    options: {
-                      autoSummarize: settings.autoSummarize,
-                      autoTags: settings.autoTags,
-                      autoFolder: settings.autoFolder
-                    }
+              const autoSetting = await db.settings.get('auto_archive');
+              const isAutoArchiveEnabled = autoSetting?.value === true || autoSetting?.value === 'true';
+              if (!isAutoArchiveEnabled) return;
+
+              let htmlSource: string | undefined;
+              let iframeSources: Record<string, string> | undefined;
+
+              if (isFromActiveTab && activeTabId != null) {
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                try {
+                  const timeoutPromise = new Promise<null>((resolve) => {
+                    timer = setTimeout(() => resolve(null), 1500);
                   });
+                  const sendPromise = (
+                    typeof browser !== 'undefined' && browser.tabs?.sendMessage
+                      ? browser.tabs.sendMessage(activeTabId, { type: 'EXTRACT_HTML', autoScroll: false })
+                      : Promise.resolve(null)
+                  ).catch(() => null);
+
+                  const res = (await Promise.race([sendPromise, timeoutPromise])) as any;
+                  if (res?.html) {
+                    htmlSource = res.html;
+                    iframeSources = res.iframeSources;
+                  }
+                } catch {
+                  // Fallback to undefined htmlSource
+                } finally {
+                  if (timer) clearTimeout(timer);
                 }
               }
+
+              const stillExists = await db.bookmarks.get(targetBookmarkId);
+              if (!stillExists) return;
+
+              const compressSetting = await db.settings.get('archive_compress');
+              const compress = compressSetting?.value !== undefined
+                ? (compressSetting.value === true || compressSetting.value === 'true')
+                : true;
+
+              const { enqueueArchiveJob } = await import('../archive/archive-queue');
+              await enqueueArchiveJob({
+                bookmarkId: targetBookmarkId,
+                pageUrl: targetUrl,
+                pageTitle: targetTitle,
+                htmlSource,
+                iframeSources,
+                compress
+              });
             } catch (e) {
-              console.error('[BookmarkManager] Failed to trigger browser native bookmark AI:', e);
+              console.error('[BookmarkManager] Failed to trigger auto-archive:', e);
             }
-          }
+          })();
+
+          await Promise.allSettled([aiPromise, archivePromise]);
         }
       }
     });

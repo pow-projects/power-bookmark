@@ -36,6 +36,9 @@ export const lastSyncAt: Readable<number | null> = derived(
 );
 
 let liveSub: Subscription | null = null;
+let crossStorageListener: ((changes: Record<string, any>, areaName: string) => void) | null = null;
+let crossMessageListener: ((msg: any) => void) | null = null;
+let crossDocumentListener: (() => void) | null = null;
 
 async function checkProviderConnected(provider: string): Promise<boolean> {
   if (typeof db === 'undefined' || !db.settings || !provider || provider === 'none') {
@@ -72,6 +75,40 @@ export function initSyncStatusStore(): () => void {
       // ignore
     }
     liveSub = null;
+  }
+
+  // Cross-context synchronization event listeners
+  if (!crossStorageListener && typeof browser !== 'undefined' && browser.storage?.onChanged) {
+    crossStorageListener = (changes, area) => {
+      if (area === 'local' && (changes['sync_last_completed'] || changes['sync_status_updated'] || changes['bookmarks_last_updated'])) {
+        void refreshSyncStatus();
+      }
+    };
+    try {
+      browser.storage.onChanged.addListener(crossStorageListener);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!crossMessageListener && typeof browser !== 'undefined' && browser.runtime?.onMessage?.addListener) {
+    crossMessageListener = (msg: any) => {
+      if (msg?.type === 'SYNC_RESOLVED' || msg?.type === 'SYNC_STATE_CHANGED') {
+        void refreshSyncStatus();
+      }
+    };
+    try {
+      browser.runtime.onMessage.addListener(crossMessageListener);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!crossDocumentListener && typeof document !== 'undefined') {
+    crossDocumentListener = () => {
+      void refreshSyncStatus();
+    };
+    document.addEventListener('sync-resolved', crossDocumentListener);
   }
 
   if (typeof db !== 'undefined' && db.syncState) {
@@ -133,6 +170,30 @@ export function initSyncStatusStore(): () => void {
       }
       liveSub = null;
     }
+    if (crossStorageListener && typeof browser !== 'undefined' && browser.storage?.onChanged) {
+      try {
+        browser.storage.onChanged.removeListener(crossStorageListener);
+      } catch {
+        // ignore
+      }
+      crossStorageListener = null;
+    }
+    if (crossMessageListener && typeof browser !== 'undefined' && browser.runtime?.onMessage?.removeListener) {
+      try {
+        browser.runtime.onMessage.removeListener(crossMessageListener);
+      } catch {
+        // ignore
+      }
+      crossMessageListener = null;
+    }
+    if (crossDocumentListener && typeof document !== 'undefined') {
+      try {
+        document.removeEventListener('sync-resolved', crossDocumentListener);
+      } catch {
+        // ignore
+      }
+      crossDocumentListener = null;
+    }
   };
 }
 
@@ -143,25 +204,26 @@ if (typeof db !== 'undefined' && db.syncState) {
 
 export async function refreshSyncStatus(): Promise<SyncStatusState> {
   try {
+    let syncRecord: any = null;
+    let lastSyncTime: number | null = null;
+    let isSyncing = false;
+    let isError = false;
+
+    if (typeof db !== 'undefined' && db.syncState) {
+      syncRecord = await db.syncState.orderBy('id').last();
+      if (syncRecord) {
+        lastSyncTime = syncRecord.lastSyncAt ? Number(syncRecord.lastSyncAt) : null;
+        isSyncing = syncRecord.status === 'syncing';
+        isError = syncRecord.status === 'error';
+      }
+    }
+
     let provider = 'none';
     let isConnected = false;
     if (typeof db !== 'undefined' && db.settings) {
       const providerSetting = await db.settings.get('sync_provider');
       provider = providerSetting?.value || 'none';
       isConnected = await checkProviderConnected(provider);
-    }
-
-    let lastSyncTime: number | null = null;
-    let isSyncing = false;
-    let isError = false;
-
-    if (typeof db !== 'undefined' && db.syncState) {
-      const syncRecord = await db.syncState.orderBy('id').last();
-      if (syncRecord) {
-        lastSyncTime = syncRecord.lastSyncAt ? Number(syncRecord.lastSyncAt) : null;
-        isSyncing = syncRecord.status === 'syncing';
-        isError = syncRecord.status === 'error';
-      }
     }
 
     let isCoolingDown = false;

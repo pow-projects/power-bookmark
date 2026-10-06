@@ -164,7 +164,8 @@ export default defineConfig({
       'identity',
       'activeTab',
       'alarms',
-      'downloads'
+      'downloads',
+      'declarativeNetRequest'
     ];
     if (browser !== 'firefox') {
       permissions.push('offscreen');
@@ -176,7 +177,7 @@ export default defineConfig({
       permissions,
       host_permissions: ['<all_urls>'],
       content_security_policy: {
-        extension_pages: "script-src 'self'; object-src 'none';"
+        extension_pages: "script-src 'self'; object-src 'none'; media-src 'self' blob: data: https:; frame-src 'self' blob: https://*.youtube-nocookie.com https://*.youtube.com https://*.tiktok.com https://*.vimeo.com https://*.dailymotion.com https://*.kakao.com https://*.daum.net https://*.naver.com https://youtube-nocookie.com https://youtube.com https://tiktok.com https://vimeo.com https://dailymotion.com https://kakao.com https://daum.net https://naver.com;"
       },
       ...(browser === 'firefox'
         ? {

@@ -1,6 +1,7 @@
 import db from '../db';
 import { isBlockedUrl, sanitizeDOM } from './archive-sanitizer';
 import { removeArchiveTombstone } from './archive-tombstone';
+import { isVideoEmbedUrl, preserveOrInjectVideoEmbeds } from './video-embed-helper';
 
 /**
  * Maximum concurrent executions for resource fetch
@@ -641,11 +642,20 @@ export async function capturePageHtml(
     })
   );
 
-  // 4. iframe -> srcdoc inline (same-origin collected only; cross-origin skipped)
+  // 4. iframe -> srcdoc inline (same-origin collected only; cross-origin & video embeds skipped)
   const iframes = Array.from(doc.querySelectorAll('iframe'));
   await Promise.all(
     iframes.map(async (iframe: any) => {
       const src = iframe.getAttribute('src');
+      if (src && (isVideoEmbedUrl(src) || isVideoEmbedUrl(resolveUrl(pageUrl, src)))) {
+        iframe.setAttribute(
+          'allow',
+          'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen'
+        );
+        iframe.setAttribute('allowfullscreen', 'true');
+        iframe.removeAttribute('srcdoc');
+        return;
+      }
       if (src && iframeSources[src]) {
         // Inline iframe document with same context (limiter, cache)
         const iframeBlob = await capturePageHtml(iframeSources[src], resolveUrl(pageUrl, src), pageTitle, '', {}, compress, ctx);
@@ -691,6 +701,9 @@ export async function capturePageHtml(
     viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0');
     head.appendChild(viewportMeta);
   }
+
+  // 6. Preserve or inject live video embeds (YouTube / TikTok / etc.)
+  preserveOrInjectVideoEmbeds(doc, pageUrl, pageTitle);
 
   const finalHtml = doc.documentElement.outerHTML;
   if (compress) {
