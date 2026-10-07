@@ -200,6 +200,57 @@ describe('AI Summarizer', () => {
     expect(prompt.systemPrompt).toContain('NEVER combine multiple topics with conjunctions');
   });
 
+  it('builds analysis prompt with 3-tier folder decision protocol and subfolder branching guidelines', async () => {
+    const { buildAnalysisPrompt } = await import('../../src/lib/ai/types');
+    const prompt = buildAnalysisPrompt(
+      {
+        title: 'Qwen3.8-Flash-Next GGUF',
+        url: 'https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF',
+        textContent: 'Qwen3.8 GGUF model weights for AI LLM inference'
+      },
+      [
+        { id: 'f-ai-res', title: 'Resource', path: 'AI/Resource' },
+        { id: 'f-dev', title: 'Development', path: 'Development' }
+      ],
+      'full',
+      'English'
+    );
+
+    // 3-Tier Decision Protocol
+    expect(prompt.systemPrompt).toContain('3-Tier Decision Protocol');
+    expect(prompt.systemPrompt).toContain('TIER 1: EXACT / SPECIFIC EXISTING MATCH');
+    expect(prompt.systemPrompt).toContain('TIER 2: SUBFOLDER BRANCHING (BROAD BUCKET PENALTY)');
+    expect(prompt.systemPrompt).toContain('TIER 3: NEW HIERARCHY');
+
+    // Broad bucket penalty keywords
+    expect(prompt.systemPrompt).toContain('Resource');
+    expect(prompt.systemPrompt).toContain('Tools');
+    expect(prompt.systemPrompt).toContain('자료');
+    expect(prompt.systemPrompt).toContain('도구');
+    expect(prompt.systemPrompt).toContain('기타');
+
+    // Subfolder branching examples and data contract across multiple domains
+    expect(prompt.systemPrompt).toContain('Development/Libraries');
+    expect(prompt.systemPrompt).toContain('Design/Icons');
+    expect(prompt.systemPrompt).toContain('Finance/Stocks');
+    expect(prompt.systemPrompt).toContain('AI/Models');
+    expect(prompt.systemPrompt).toContain('Design/Resource');
+    expect(prompt.systemPrompt).toContain('Development/Tools');
+    expect(prompt.systemPrompt).toContain('Development/Frameworks');
+    expect(prompt.systemPrompt).toContain('Design/Typography');
+    expect(prompt.systemPrompt).toContain('DATA CONTRACT FOR SUBFOLDER BRANCHING');
+    expect(prompt.systemPrompt).toContain("'suggestedFolderId': null");
+    expect(prompt.systemPrompt).toContain("'suggestedFolderName': \"<ExactParentPath>/<NewSubfolder>\" (e.g., \"Development/Libraries\")");
+    expect(prompt.systemPrompt).toContain("'isNewFolderRecommended': true");
+    expect(prompt.systemPrompt).toContain('NEVER translate or alter existing parent names');
+    expect(prompt.systemPrompt).toContain('Suggested folder path (e.g., Development/Libraries, Community/Politics, or Design/Icons)');
+
+    // Invariants preserved
+    expect(prompt.systemPrompt).toContain('Limit folder hierarchy to a maximum of 3 levels');
+    expect(prompt.systemPrompt).toContain('NEVER translate existing folder names');
+    expect(prompt.userPrompt).toContain('- "AI/Resource" (id: "f-ai-res")');
+  });
+
   it('sanitizes folder names with connectors (및/와/과/and/or/& 금지 규칙)', async () => {
     const { sanitizeFolderName, sanitizeCategory } = await import('../../src/lib/ai/types');
     // Folder path: retain '/' separator, sanitize single noun per segment

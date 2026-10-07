@@ -267,18 +267,42 @@ ${summaryStyleGuide}
 5. Limit folder hierarchy to a maximum of 3 levels (e.g., "Category/Subcategory/Topic"). Avoid overly deep nesting (4+ levels).
 
 [EXISTING FOLDERS PRIORITY & IMMUTABILITY]
-1. Review existing folders from [Existing Folders] first.
-2. Select an existing folder ONLY IF its ENTIRE hierarchical path (including all parent folders) logically matches the webpage's core domain. NEVER select an existing folder solely because its leaf name matches generic terms like 'Tools', 'Resources', 'Utils', or 'Docs' (e.g., do NOT categorize a Web Scraper into 'AI/StableDiffusion/Tools').
-3. If a suitable folder exists—EVEN IF the existing folder name is in a different language from ${effectiveTargetLang}—you MUST set 'suggestedFolderId' to that folder's ID, 'isNewFolderRecommended' to false, and 'suggestedFolderName' to that existing folder's Path. NEVER translate existing folder names.
-4. If no existing folder is suitable or if the parent hierarchy is unrelated, set 'suggestedFolderId': null, 'isNewFolderRecommended': true, and generate a new folder path in ${effectiveTargetLang} ("Parent/Child" format).`;
+Review existing folders from [Existing Folders] first using this 3-Tier Decision Protocol:
+
+- TIER 1: EXACT / SPECIFIC EXISTING MATCH
+  1. If an existing folder's ENTIRE hierarchical path (including all parent folders) specifically and accurately matches the webpage's specific topic, select it.
+  2. You MUST set 'suggestedFolderId' to that folder's ID, 'isNewFolderRecommended': false, and 'suggestedFolderName' to that existing folder's Path.
+  3. EVEN IF the existing folder name is in a different language from ${effectiveTargetLang}, you MUST set 'suggestedFolderId' to that folder's ID, 'isNewFolderRecommended': false, and 'suggestedFolderName' to that existing folder's Path. NEVER translate existing folder names.
+
+- TIER 2: SUBFOLDER BRANCHING (BROAD BUCKET PENALTY)
+  1. If a parent folder domain matches (e.g., "Development", "Design", "Finance", "AI"), but existing leaf folders are overly broad generic buckets (e.g., 'Resource', 'Resources', 'Tools', 'General', 'Docs', 'Etc', 'Misc', 'Links', '자료', '도구', '기타') or lack a specific subtopic folder:
+     - DO NOT force-fit the bookmark into the broad generic folder (e.g., do NOT categorize a CSS icon library into "Design/Resource" or a code package into "Development/Tools").
+     - Instead, branch into a more specific subfolder under the matched parent (e.g., "Development/Libraries", "Design/Icons", "Finance/Stocks", "AI/Models").
+  2. Preserve the parent folder name and spelling 100% (NEVER translate or alter existing parent names). Branch using a concise, specific noun or plural noun in standard form.
+  3. DATA CONTRACT FOR SUBFOLDER BRANCHING:
+     - 'suggestedFolderId': null (since this specific subfolder does not exist yet)
+     - 'suggestedFolderName': "<ExactParentPath>/<NewSubfolder>" (e.g., "Development/Libraries")
+     - 'isNewFolderRecommended': true
+
+- TIER 3: NEW HIERARCHY
+  1. If no parent hierarchy exists or the existing hierarchy is completely unrelated, generate a new 1-level or 2-level folder hierarchy in ${effectiveTargetLang} ("Parent/Child" format, e.g., "Development/Frameworks" or "Design/Typography").
+  2. DATA CONTRACT FOR NEW HIERARCHY:
+     - 'suggestedFolderId': null
+     - 'suggestedFolderName': new folder path
+     - 'isNewFolderRecommended': true
+
+General Invariants:
+- NEVER select an existing folder solely because its leaf name matches generic terms like 'Tools', 'Resources', 'Utils', or 'Docs' (e.g., do NOT categorize a Web Scraper into 'AI/StableDiffusion/Tools').
+- Limit folder hierarchy to a maximum of 3 levels (e.g., "Category/Subcategory/Topic"). Avoid overly deep nesting (4+ levels).
+- NEVER translate existing folder names.`;
 
   // Return JSON shape per mode
   const jsonShapes: Record<AiTaskKind, string> = {
     full: `{
   "summary": "Single concise sentence summary in ${effectiveTargetLang}",
   "category": "Single noun page topic in ${effectiveTargetLang}",
-  "suggestedFolderId": "ID of suitable existing folder (or null)",
-  "suggestedFolderName": "Suggested folder path (e.g., Community/Politics)",
+  "suggestedFolderId": "ID of exact existing folder (or null for new hierarchy / subfolder branch)",
+  "suggestedFolderName": "Suggested folder path (e.g., Development/Libraries, Community/Politics, or Design/Icons)",
   "isNewFolderRecommended": boolean,
   "tags": ["tag1", "tag2", "tag3"],
   "confidence": number between 0.0 and 1.0
@@ -291,8 +315,8 @@ ${summaryStyleGuide}
 }`,
     folder: `{
   "category": "Single noun page topic in ${effectiveTargetLang}",
-  "suggestedFolderId": "ID of suitable existing folder (or null)",
-  "suggestedFolderName": "Suggested folder path",
+  "suggestedFolderId": "ID of exact existing folder (or null for new hierarchy / subfolder branch)",
+  "suggestedFolderName": "Suggested folder path (e.g., Development/Libraries, Community/Politics, or Design/Icons)",
   "isNewFolderRecommended": boolean,
   "tags": ["tag1", "tag2", "tag3"]
 }`
