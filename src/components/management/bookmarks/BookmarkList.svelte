@@ -460,7 +460,8 @@
     if (typeof browser !== 'undefined' && browser.runtime?.onMessage?.addListener) {
       browser.runtime.onMessage.addListener(handleRuntimeMessage);
     }
-    cleanupAiStore = initAiProgressStore(() => { loadBookmarks(); });
+    // initAiProgressStore 는 인자를 받지 않는다(콜백은 호출되지 않았다) — 갱신 트리거는 storage/런타임 메시지 쪽이다.
+    cleanupAiStore = initAiProgressStore();
 
     // Restore in-progress AI bulk job state on initial mount
     if (typeof browser !== 'undefined' && browser.storage?.local) {

@@ -18,11 +18,19 @@
   import { getCloudArchiveIndexCache } from '../../lib/archive/archive-cloud';
   import { getArchiveCaptureState, STALE_MS } from '../../lib/archive/archive-capture-state';
   import db from '../../lib/db';
+  import { isIncognitoContext } from '../../lib/utils/incognito';
+  import { generateDeterministicSyncId } from '../../lib/bookmarks/url-normalizer';
   import PopupOptionsCard from '../../components/popup/PopupOptionsCard.svelte';
   import ActionButtons from '../../components/popup/ActionButtons.svelte';
   import Icon from '../../components/shared/Icon.svelte';
+  import Modal from '../../components/shared/Modal.svelte';
   import { formatApproximateAiError } from '../../lib/ai/ai-error-formatter';
   import { initSyncStatusStore, syncStatus, refreshSyncStatus } from '../../lib/sync/sync-status-store';
+
+  // Incognito mode state
+  let isIncognito = false;
+  let showIncognitoModal = false;
+  let pendingIncognitoUrl: string | null = null;
 
   // Tab data
   let currentTab: chrome.tabs.Tab | null = null;
@@ -65,6 +73,7 @@
 
   onMount(async () => {
     try {
+      isIncognito = isIncognitoContext();
       unsubscribeSync = initSyncStatusStore();
       await refreshSyncStatus();
 
@@ -87,7 +96,18 @@
       title = currentTab.title || url;
 
       if (url) {
-        duplicate = await BookmarkManager.findDuplicate(url);
+        if (isIncognito) {
+          try {
+            const res = await browser.runtime.sendMessage({ type: 'CHECK_DUPLICATE_BOOKMARK', url }) as any;
+            if (res?.duplicate && res?.bookmark) {
+              duplicate = res.bookmark;
+            }
+          } catch {
+            duplicate = null;
+          }
+        } else {
+          duplicate = await BookmarkManager.findDuplicate(url);
+        }
       }
 
       if (duplicate) {
@@ -290,7 +310,11 @@
     }
   }
 
-  async function dispatchBackgroundAiAnalysis(bookmarkId: number): Promise<boolean> {
+  async function dispatchBackgroundAiAnalysis(
+    bookmarkId: number,
+    syncId?: string,
+    browserBookmarkId?: string
+  ): Promise<boolean> {
     try {
       if (!autoSummarize && !autoTags && !autoFolder) return false;
       if (!aiConfigured) return false;
@@ -306,10 +330,14 @@
           text: ''
         };
       }
-      await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'pending' });
+      // pending 은 잡을 만드는 쪽(백그라운드 enqueueAiJob)이 잡과 함께 기록한다.
+      // 여기서 먼저 기록하면 백그라운드가 잡을 만들지 못한 경우(예: bId 해석 실패) 잡 없는 pending 이 남아
+      // 카드 배지가 영구히 돌았다. 이 경로는 백그라운드가 동기 선응답하므로 실패를 알 수 없다.
       await browser.runtime.sendMessage({
         type: 'AI_ANALYZE_BOOKMARK',
         bookmarkId,
+        syncId,
+        browserBookmarkId,
         payload,
         folders,
         autoSummarize,
@@ -319,9 +347,6 @@
       return true;
     } catch (e) {
       console.error('Failed to dispatch background AI analysis:', e);
-      try {
-        await BookmarkManager.updateBookmark(bookmarkId, { aiStatus: 'none' });
-      } catch {}
       return false;
     }
   }
@@ -408,12 +433,49 @@
     } catch {}
   }
 
+  async function openUrlSafe(targetUrl: string) {
+    if (isIncognito) {
+      pendingIncognitoUrl = targetUrl;
+      showIncognitoModal = true;
+      return;
+    }
+    await browser.tabs.create({ url: targetUrl });
+    window.close();
+  }
+
+  async function confirmOpenInNormalWindow() {
+    showIncognitoModal = false;
+    if (!pendingIncognitoUrl) return;
+    const targetUrl = pendingIncognitoUrl;
+    pendingIncognitoUrl = null;
+    try {
+      if (typeof browser !== 'undefined' && browser.windows?.getAll) {
+        const normalWindows = await browser.windows.getAll({ windowTypes: ['normal'] });
+        const normalWin = normalWindows.find((w) => !w.incognito);
+        if (normalWin && normalWin.id) {
+          await browser.tabs.create({ windowId: normalWin.id, url: targetUrl, active: true });
+          await browser.windows.update(normalWin.id, { focused: true });
+          window.close();
+          return;
+        }
+      }
+      if (typeof browser !== 'undefined' && browser.windows?.create) {
+        await browser.windows.create({ incognito: false, url: targetUrl });
+        window.close();
+        return;
+      }
+    } catch {
+      // Fallback: open in current window tab
+    }
+    await browser.tabs.create({ url: targetUrl });
+    window.close();
+  }
+
   async function handleViewArchive() {
     if (localBookmarkId === null || successAction) return;
     try {
       const viewerUrl = browser.runtime.getURL(`viewer.html?bookmarkId=${localBookmarkId}`);
-      await browser.tabs.create({ url: viewerUrl, active: true });
-      window.close();
+      await openUrlSafe(viewerUrl);
     } catch (error) {
       console.error('[Popup] Archive viewing failed:', error);
       errorMessage = i18n.t('popup.error.viewArchiveFailed');
@@ -446,20 +508,17 @@
 
   async function handleManage() {
     const managementUrl = browser.runtime.getURL('management.html');
-    await browser.tabs.create({ url: managementUrl });
-    window.close();
+    await openUrlSafe(managementUrl);
   }
 
   async function handleOpenAiSettings() {
     const aiSettingsUrl = browser.runtime.getURL('management.html?tab=settings&section=ai');
-    await browser.tabs.create({ url: aiSettingsUrl });
-    window.close();
+    await openUrlSafe(aiSettingsUrl);
   }
 
   async function handleOpenSyncSettings() {
     const syncSettingsUrl = browser.runtime.getURL('management.html?tab=settings&section=sync');
-    await browser.tabs.create({ url: syncSettingsUrl });
-    window.close();
+    await openUrlSafe(syncSettingsUrl);
   }
 
   async function triggerSuccess(action: 'archive' | 'delete') {
@@ -530,27 +589,57 @@
         return existing.id;
       }
 
+      let createdSyncId: string;
+      let createdBrowserBookmarkId: string;
+      let effectiveBookmarkId: number;
+
       const defaultFolderId = folders.length > 0 ? folders[0].id : undefined;
-      const bookmarkData = await BookmarkManager.createBookmark(
-        effectiveUrl,
-        title || effectiveUrl,
-        defaultFolderId
-      );
 
-      localBookmarkId = bookmarkData.id;
-      isEditMode = true;
+      if (isIncognito) {
+        const res = await browser.runtime.sendMessage({
+          type: 'CREATE_INCOGNITO_BOOKMARK',
+          url: effectiveUrl,
+          title: title || effectiveUrl,
+          parentId: defaultFolderId,
+          folderPath: folders[0]?.title
+        }) as any;
+        if (!res?.ok || !res?.bookmarkId) {
+          throw new Error(res?.error || i18n.t('popup.error.createFailed', { error: 'Background bookmark creation failed' }));
+        }
+        createdSyncId = res.syncId;
+        createdBrowserBookmarkId = res.browserBookmarkId;
+        effectiveBookmarkId = res.bookmarkId;
+        localBookmarkId = res.bookmarkId;
+        isEditMode = true;
+      } else {
+        const bookmarkData = await BookmarkManager.createBookmark(
+          effectiveUrl,
+          title || effectiveUrl,
+          defaultFolderId
+        );
+        createdSyncId = bookmarkData.syncId;
+        createdBrowserBookmarkId = bookmarkData.bookmarkId;
+        effectiveBookmarkId = bookmarkData.id;
+        localBookmarkId = bookmarkData.id;
+        isEditMode = true;
+      }
 
-      await dispatchBackgroundAiAnalysis(bookmarkData.id);
+      await dispatchBackgroundAiAnalysis(effectiveBookmarkId, createdSyncId, createdBrowserBookmarkId);
 
       try {
         if (currentTab?.id) {
           const htmlResult = await extractTabHtml(currentTab.id).catch(() => ({ html: '', iframeSources: {} as Record<string, string> }));
           const htmlWithBanner = buildArchiveBannerHtml(htmlResult.html);
-          const compress = (await db.settings.get('archive_compress'))?.value ?? true;
+          let compress = true;
+          try {
+            compress = (await db.settings.get('archive_compress'))?.value ?? true;
+          } catch {}
           const response = await browser.runtime.sendMessage({
             type: 'ARCHIVE_CAPTURE_BOOKMARK',
-            bookmarkId: bookmarkData.id,
-            bookmarkIdStr: String(bookmarkData.id),
+            bookmarkId: effectiveBookmarkId > 0 ? effectiveBookmarkId : undefined,
+            bookmarkIdStr: effectiveBookmarkId > 0 ? String(effectiveBookmarkId) : undefined,
+            syncId: createdSyncId,
+            browserBookmarkId: createdBrowserBookmarkId,
             tabId: currentTab.id,
             pageTitle: title,
             pageUrl: effectiveUrl,
@@ -570,12 +659,12 @@
       } catch (e: any) {
         if (forceArchive) {
           errorMessage = i18n.t('popup.error.archiveSaveFailed', { error: e.message || i18n.t('common.unknownError') });
-          return bookmarkData.id;
+          return effectiveBookmarkId;
         }
         console.warn('[Popup] Failed to start background archive processing:', e);
       }
 
-      return bookmarkData.id;
+      return effectiveBookmarkId;
     } catch (error: any) {
       console.error('Failed to add bookmark:', error);
       errorMessage = i18n.t('popup.error.createFailed', { error: error.message || i18n.t('common.unknownError') });
@@ -666,6 +755,13 @@
         </div>
       </header>
 
+      {#if isIncognito}
+        <div class="incognito-banner" role="status">
+          <Icon name="shield" size={13} />
+          <span>{i18n.t('popup.incognitoNotice')}</span>
+        </div>
+      {/if}
+
       <PopupOptionsCard
         syncState={$syncStatus}
         {aiProvider}
@@ -754,6 +850,23 @@
       </footer>
     {/if}
   </div>
+
+  <Modal
+    open={showIncognitoModal}
+    title={i18n.t('popup.incognitoModalTitle')}
+    size="sm"
+    on:close={() => (showIncognitoModal = false)}
+  >
+    <p class="incognito-modal-text">{i18n.t('popup.incognitoModalPrompt')}</p>
+    <div slot="footer" class="incognito-modal-actions">
+      <button type="button" class="btn btn-secondary" on:click={() => (showIncognitoModal = false)}>
+        {i18n.t('common.cancel')}
+      </button>
+      <button type="button" class="btn btn-primary" on:click={confirmOpenInNormalWindow}>
+        {i18n.t('popup.incognitoOpenInNormal')}
+      </button>
+    </div>
+  </Modal>
 </div>
 
 <style>
@@ -954,5 +1067,33 @@
     border-color: var(--color-primary);
     color: var(--color-primary);
     transform: translateY(-1px);
+  }
+
+  .incognito-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.625rem;
+    margin-bottom: 0.625rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--color-warning);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    line-height: 1.3;
+  }
+
+  .incognito-modal-text {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  .incognito-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
   }
 </style>

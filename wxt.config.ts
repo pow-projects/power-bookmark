@@ -1,7 +1,7 @@
 import { defineConfig } from 'wxt';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 
 // Auto-detect Chrome (Chrome for Testing) installed by agent-browser
@@ -148,8 +148,35 @@ export default defineConfig({
   webExt: {
     disabled: process.env.WXT_RUNNER_OPEN === 'false',
     binaries: detectedChromeBinary ? { chrome: detectedChromeBinary } : undefined,
+    // Optional persistent profile: run with CHROMIUM_PROFILE=/path/to/user-data-dir (or put it in
+    // .env) to keep logins between runs. keepProfileChanges is required — without it web-ext copies
+    // the profile into a throwaway user-data-dir and discards the changes on exit. The directory is
+    // created when missing because chrome-launcher opens <profile>/chrome-out.log before launching.
+    // When the variable is unset nothing is passed, so web-ext keeps using its disposable profile.
+    ...(process.env.CHROMIUM_PROFILE
+      ? (() => {
+          const chromiumProfile = resolve(process.env.CHROMIUM_PROFILE as string);
+          mkdirSync(chromiumProfile, { recursive: true });
+          return {
+            chromiumProfile,
+            keepProfileChanges: true,
+            // Session-scoped login cookies (e.g. Naver's NID_AUT/NID_SES) are dropped on every start
+            // unless Chrome restores the previous session, so restoring it is the default while a
+            // profile is in use. CHROMIUM_RESTORE_SESSION=0 opts out and keeps Chrome's own startup
+            // behavior. Only a normal exit saves the session — a SIGKILLed browser still loses them.
+            ...(process.env.CHROMIUM_RESTORE_SESSION === '0'
+              ? {}
+              : { chromiumPref: { session: { restore_on_startup: 1 } } }),
+          };
+        })()
+      : {}),
+    // Chrome's sandbox requires unprivileged user namespaces; environments that lack them (some
+    // containers, WSL1) must pass --no-sandbox, which makes Chrome show the "You are using an
+    // unsupported command-line flag: --no-sandbox" infobar. The sandbox works in a normal dev
+    // environment, so the flag is opt-in: set CHROMIUM_NO_SANDBOX=1 in .env only where Chrome
+    // otherwise refuses to start ("No usable sandbox!").
     chromiumArgs: [
-      '--no-sandbox',
+      ...(process.env.CHROMIUM_NO_SANDBOX === '1' ? ['--no-sandbox'] : []),
       '--disable-gpu',
       '--disable-dev-shm-usage',
       `--remote-debugging-port=${process.env.CHROMIUM_REMOTE_DEBUGGING_PORT || '9222'}`

@@ -171,6 +171,7 @@ export async function initAiQueue(): Promise<void> {
 
   // 1. running -> queued restoration. However, jobs that exhausted retry budget (attempts >= MAX)
   //    are finalized as error without re-execution — prevents infinite retries
+  let swept = 0;
   const stale = await db.aiJobs.where('status').equals('running').toArray();
   for (const job of stale) {
     const b = await db.bookmarks.get(job.bookmarkId);
@@ -180,6 +181,7 @@ export async function initAiQueue(): Promise<void> {
       await db.aiJobs.put(job);
       if (b?.aiStatus === 'running') {
         await BookmarkManager.updateBookmark(job.bookmarkId, { aiStatus: 'error' });
+        swept++;
       }
       continue;
     }
@@ -187,6 +189,7 @@ export async function initAiQueue(): Promise<void> {
     await db.aiJobs.put(job);
     if (b?.aiStatus === 'running') {
       await BookmarkManager.updateBookmark(job.bookmarkId, { aiStatus: 'none' });
+      swept++;
     }
   }
 
@@ -198,8 +201,15 @@ export async function initAiQueue(): Promise<void> {
       const hasJob = jobs.some((j) => j.status === 'queued' || j.status === 'running');
       if (!hasJob) {
         await BookmarkManager.updateBookmark(b.id, { aiStatus: 'none' });
+        swept++;
       }
     }
+  }
+
+  // 스윕은 Dexie 만 고친다 — 이미 열려 있는 관리자 페이지가 이 사실을 알아야 배지가 사라진다.
+  // (부팅 시 1회만 발화하는 경로라 통지 누락이 곧 영구 잔존이었다.)
+  if (swept > 0) {
+    await notifyManagementPage({ ok: true });
   }
 
   // 3. Clear stranded batch progress if no queued/running batch jobs remain
@@ -224,6 +234,7 @@ export async function enqueueAiJob(input: EnqueueInput): Promise<EnqueueResult> 
     const bookmark = await db.bookmarks.get(input.bookmarkId);
     if (bookmark && bookmark.aiStatus === 'pending') {
       await db.bookmarks.update(input.bookmarkId, { aiStatus: 'none' });
+      await notifyManagementPage({ ok: true });
     }
     return { ok: false, reason: 'not-configured' };
   }
@@ -542,11 +553,9 @@ async function runWorker(job: AiJob, abortController: AbortController): Promise<
     const outcome = await processAiJob(job, abortController.signal);
     await finalizeJob(job, outcome);
   } catch (e: any) {
-    const outcome = applyRetryOrFail(job, e?.message || String(e), !isPermanentAiError(e));
-    await db.aiJobs.put(job);
-    if (outcome === 'error') {
-      await publishBatchProgress(job, 'finish', { ok: false, error: job.error });
-    }
+    // 예외 이탈도 정상 실패와 같은 종단 처리를 한다: 잡 상태 전이 + 북마크 aiStatus 원복 + 통지.
+    // 종전에는 잡 상태만 바꾸고 북마크 플래그를 두어, 카드의 진행 배지가 완료 후에도 남았다.
+    await finalizeJob(job, { ok: false, error: e?.message || String(e), retryable: !isPermanentAiError(e) });
   } finally {
     activeAbortControllers.delete(job.id);
     runningJobIds.delete(job.id);

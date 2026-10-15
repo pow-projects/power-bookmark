@@ -239,6 +239,27 @@ async function renderSpinnerFrame(iconPath: IconPathMap, title: string): Promise
 }
 
 /**
+ * Advances the spinner by one frame, and stops itself once no task is active.
+ *
+ * Self-terminating on purpose: the tick re-reads the task counters and releases its own timer when they
+ * are all zero, so a timer that was created while another sync was still awaiting its first render (two
+ * queues claiming the indicator in the same tick) cannot keep repainting the icon forever.
+ */
+function tickSpinner(timer: ReturnType<typeof setInterval>): void {
+  if (taskCounts.archive + taskCounts.ai + taskCounts.capture === 0) {
+    clearInterval(timer);
+    if (spinnerTimer === timer) spinnerTimer = null;
+    currentFrameIndex = 0;
+    void syncTaskIndicatorState();
+    return;
+  }
+
+  currentFrameIndex = (currentFrameIndex + 1) % SPINNER_ICON_PATHS.length;
+  const { title } = getTaskIndicatorMeta();
+  renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], title).catch(() => {});
+}
+
+/**
  * Synchronizes spinner animation or badge restoration according to current taskCounts state.
  */
 async function syncTaskIndicatorState(): Promise<void> {
@@ -252,12 +273,17 @@ async function syncTaskIndicatorState(): Promise<void> {
 
     if (!spinnerTimer) {
       currentFrameIndex = 0;
+      // Own the timer slot synchronously, before the first await: a second task claiming the indicator
+      // while this render is still in flight must reuse this timer instead of creating a second one
+      // (an overwritten handle can never be cleared again — the icon then spins forever with zero tasks).
+      const timer = setInterval(() => tickSpinner(timer), SPINNER_INTERVAL_MS);
+      spinnerTimer = timer;
       await renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], title);
-      spinnerTimer = setInterval(() => {
-        currentFrameIndex = (currentFrameIndex + 1) % SPINNER_ICON_PATHS.length;
-        const currentMeta = getTaskIndicatorMeta();
-        renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], currentMeta.title).catch(() => {});
-      }, SPINNER_INTERVAL_MS);
+      // A release can complete its restore while this first frame is still rendering; re-settle so the
+      // idle icon/title is not left overwritten by a frame that landed late.
+      if (spinnerTimer !== timer && taskCounts.archive + taskCounts.ai + taskCounts.capture === 0) {
+        await syncTaskIndicatorState();
+      }
     } else {
       await renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], title);
     }
@@ -349,6 +375,26 @@ export function _resetTaskIndicatorsForTest(): void {
     spinnerTimer = null;
   }
   currentFrameIndex = 0;
+}
+
+/**
+ * SW 재기동 시 작업 지시자를 원상 복구한다.
+ *
+ * 카운터는 모듈 메모리라 부팅 시점엔 언제나 0 이다 — 즉 "작업 없음"이 참이고, 직전 SW 인스턴스가
+ * 칠해 둔 스피너 아이콘/제목이 남아 있으면 그건 거짓 표시다. 스피너는 SW 수명을 넘어 살아남으면 안 된다.
+ * (무거운 아카이브 도중 MV3 SW 가 재활용되면 탭 이벤트가 오기 전까지 스피너가 그대로 남던 결함의 처방.)
+ */
+export async function resetTaskIndicator(): Promise<void> {
+  taskCounts.archive = 0;
+  taskCounts.ai = 0;
+  taskCounts.sync = 0;
+  taskCounts.capture = 0;
+  if (spinnerTimer) {
+    clearInterval(spinnerTimer);
+    spinnerTimer = null;
+  }
+  currentFrameIndex = 0;
+  await syncTaskIndicatorState();
 }
 
 /**

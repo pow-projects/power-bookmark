@@ -22,6 +22,7 @@ const {
   mockDbBookmarksGet,
   mockDbBookmarksWhere,
   mockDbBookmarksFilter,
+  mockDbBookmarksUpdate,
   mockGetAiSettings,
   mockRetryBackoffMs,
   fakeRows,
@@ -80,6 +81,7 @@ const {
     mockDbBookmarksGet: vi.fn(),
     mockDbBookmarksWhere: vi.fn(),
     mockDbBookmarksFilter: vi.fn(),
+    mockDbBookmarksUpdate: vi.fn(),
     mockGetAiSettings: vi.fn(),
     mockRetryBackoffMs: vi.fn(() => 5), // Minimize retry backoff in tests (default 5ms)
     fakeRows: rows,
@@ -100,7 +102,7 @@ vi.mock('../../src/lib/ai/queue-config', () => ({
 vi.mock('../../src/lib/db', () => ({
   default: {
     aiJobs: fakeTable,
-    bookmarks: { get: mockDbBookmarksGet, where: mockDbBookmarksWhere, filter: mockDbBookmarksFilter }
+    bookmarks: { get: mockDbBookmarksGet, where: mockDbBookmarksWhere, filter: mockDbBookmarksFilter, update: mockDbBookmarksUpdate }
   }
 }));
 
@@ -147,6 +149,7 @@ describe('ai-queue', () => {
     mockDbBookmarksGet.mockReset();
     mockDbBookmarksWhere.mockReset();
     mockDbBookmarksFilter.mockReset();
+    mockDbBookmarksUpdate.mockReset();
     mockGetAiSettings.mockReset();
     vi.unstubAllGlobals();
 
@@ -534,5 +537,62 @@ describe('ai-queue', () => {
     const b1Job = fakeRows.find((r) => r.bookmarkId === 1);
     expect(b1Job?.attempts).toBe(1);
     expect(b1Job?.retryHistory).toHaveLength(1);
+  });
+
+  // ── 진행 배지 잔존(AiTaskBadge) 회귀 — 상태를 지우는 쪽이 통지도 해야 한다 ──
+
+  it('예외 종단: processAiJob throw 로 이탈해도 북마크 aiStatus 를 error 로 원복하고 실패를 통지한다', async () => {
+    const storageSet = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('browser', { storage: { local: { set: storageSet } } });
+    mockProcessAiJob.mockRejectedValue(new Error('unexpected crash'));
+    mockDbBookmarksGet.mockResolvedValue({ id: 1, bookmarkId: 'b1', aiStatus: 'running', title: 't', url: 'u' });
+
+    await enqueueAiJob({ bookmarkId: 1, kind: 'categorize' });
+    await waitUntil(() => fakeRows.some((r) => r.status === 'error'));
+
+    expect(fakeRows[0].status).toBe('error');
+    // 예외 이탈도 종단 처리: 카드 배지를 만드는 북마크 플래그가 원복되어야 한다
+    expect(mockUpdateBookmark).toHaveBeenCalledWith(1, expect.objectContaining({ aiStatus: 'error' }));
+    // 통지가 나가야 이미 열려 있는 관리자 페이지의 배지가 사라진다
+    const errorNotices = storageSet.mock.calls.filter(([c]) => c['ai_analysis_error']);
+    expect(errorNotices.length).toBeGreaterThan(0);
+  });
+
+  it('부팅 스윕 통지: initAiQueue 가 running 잔존을 원복하면 ai_analysis_last_update 를 쓴다', async () => {
+    const storageSet = vi.fn().mockResolvedValue(undefined);
+    fakeRows.push({ id: 'stale', bookmarkId: 1, kind: 'categorize', status: 'running', createdAt: 1, attempts: 0 });
+    mockDbBookmarksGet.mockResolvedValue({ id: 1, bookmarkId: 'b1', aiStatus: 'running', title: 't', url: 'u' });
+    mockDbBookmarksFilter.mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) });
+    // drain 이 잡을 소비해 통지하면 계기가 흐려진다 — 차단해 스윕 자체의 통지만 관측한다
+    mockProcessAiJob.mockImplementation((_job: any, signal: AbortSignal) =>
+      new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, aborted: true })))
+    );
+    vi.stubGlobal('browser', {
+      storage: { local: { set: storageSet, remove: vi.fn().mockResolvedValue(undefined) } }
+    });
+
+    await initAiQueue();
+
+    // 1단계: running -> queued 복원과 함께 북마크 플래그가 내려간다
+    expect(mockUpdateBookmark).toHaveBeenCalledWith(1, { aiStatus: 'none' });
+    // 스윕이 DB 를 고쳤다면 열려 있는 관리자 페이지도 알아야 한다
+    const sweepNotices = storageSet.mock.calls.filter(([c]) => c['ai_analysis_last_update']);
+    expect(sweepNotices.length).toBeGreaterThan(0);
+
+    await cancelAllAi();
+    await new Promise((r) => setTimeout(r, 30));
+  });
+
+  it('미설정 분기 통지: AI 미설정으로 잡을 만들지 않으면 pending 을 지우고 통지한다', async () => {
+    const storageSet = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('browser', { storage: { local: { set: storageSet } } });
+    mockIsAiConfigured.mockResolvedValue(false);
+    mockDbBookmarksGet.mockResolvedValue({ id: 1, bookmarkId: 'b1', aiStatus: 'pending', title: 't', url: 'u' });
+
+    const r = await enqueueAiJob({ bookmarkId: 1, kind: 'categorize' });
+
+    expect(r).toEqual({ ok: false, reason: 'not-configured' });
+    expect(mockDbBookmarksUpdate).toHaveBeenCalledWith(1, { aiStatus: 'none' });
+    expect(storageSet.mock.calls.filter(([c]) => c['ai_analysis_last_update']).length).toBeGreaterThan(0);
   });
 });
