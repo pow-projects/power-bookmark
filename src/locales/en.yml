@@ -31,6 +31,10 @@ popup:
   manage: Manage →
   saving: Saving…
   saved: Saved
+  incognitoNotice: "Incognito Mode: Bookmarks and archives are safely saved to your primary library."
+  incognitoModalTitle: Incognito Notice
+  incognitoModalPrompt: "Library management is restricted in Incognito windows for privacy protection. Open in a normal window?"
+  incognitoOpenInNormal: Open in Normal Window
   error:
     noPage: Failed to retrieve page information.
     autoSave: Auto-save failed.

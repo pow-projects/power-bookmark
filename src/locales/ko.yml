@@ -31,6 +31,10 @@ popup:
   manage: 관리 →
   saving: 저장 중…
   saved: 저장 완료
+  incognitoNotice: "시크릿 모드: 북마크와 아카이브는 기본 프로필 라이브러리에 안전하게 저장됩니다."
+  incognitoModalTitle: 시크릿 모드 안내
+  incognitoModalPrompt: "시크릿 모드에서는 프라이버시 보호를 위해 라이브러리 조회가 제한됩니다. 기본 프로필 창으로 이동하여 여시겠습니까?"
+  incognitoOpenInNormal: 기본 프로필 창에서 열기
   error:
     noPage: 페이지 정보를 가져올 수 없습니다.
     autoSave: 자동 저장에 실패했습니다.

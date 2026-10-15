@@ -9,8 +9,12 @@ import {
   getActiveTaskCounts,
   isSpinnerRunning,
   _resetTaskIndicatorsForTest,
+  resetTaskIndicator,
   BOOKMARK_BADGE_TEXT,
   SPINNER_FRAMES,
+  SPINNER_ICON_PATHS,
+  DEFAULT_ICON_PATH,
+  ACTIVE_ICON_PATH,
   SPINNER_INTERVAL_MS,
   COLOR_PRIMARY,
   COLOR_AI
@@ -443,6 +447,31 @@ describe('badge-manager', () => {
       });
     });
 
+    it('leaves no orphaned spinner interval when two tasks start in the same tick', async () => {
+      // The popup's save-and-archive flow dispatches AI_ANALYZE_BOOKMARK and ARCHIVE_CAPTURE_BOOKMARK
+      // back to back, so two queues claim the toolbar indicator concurrently. The interval slot must be
+      // owned synchronously: otherwise the second claim overwrites the timer handle and
+      // the first interval keeps repainting the icon with every counter at 0 (measured in the browser:
+      // 25 setIcon calls/s while all titles read "PowerBookmark").
+      vi.useFakeTimers();
+
+      await Promise.all([startTaskIndicator('archive'), startTaskIndicator('ai')]);
+      expect(isSpinnerRunning()).toBe(true);
+
+      await Promise.all([endTaskIndicator('archive'), endTaskIndicator('ai')]);
+      expect(getActiveTaskCounts().archive).toBe(0);
+      expect(getActiveTaskCounts().ai).toBe(0);
+      expect(isSpinnerRunning()).toBe(false);
+
+      // Nothing may keep painting once the last task is released.
+      mockSetIcon.mockClear();
+      mockSetTitle.mockClear();
+      await vi.advanceTimersByTimeAsync(SPINNER_INTERVAL_MS * 5);
+
+      expect(mockSetIcon).not.toHaveBeenCalled();
+      expect(mockSetTitle).not.toHaveBeenCalled();
+    });
+
     it('does not decrement count below zero', async () => {
       await endTaskIndicator('ai');
       expect(getActiveTaskCounts().ai).toBe(0);
@@ -454,6 +483,62 @@ describe('badge-manager', () => {
 
       await expect(setTaskIndicator('archive', true)).resolves.toBeUndefined();
       await expect(setTaskIndicator('archive', false)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('resetTaskIndicator (SW restart recovery)', () => {
+    it('restores the global indicator to default when a spinner frame survived an SW restart', async () => {
+      // A previous SW instance left the spinner icon/title painted; counters are module memory,
+      // so at boot they are always 0 — the stale spinner must not outlive the worker.
+      await startTaskIndicator('archive');
+      expect(isSpinnerRunning()).toBe(true);
+      expect(getActiveTaskCounts().archive).toBe(1);
+
+      mockSetBadgeText.mockClear();
+      mockSetTitle.mockClear();
+      mockSetIcon.mockClear();
+
+      await resetTaskIndicator();
+
+      expect(getActiveTaskCounts()).toEqual({ archive: 0, ai: 0, sync: 0, capture: 0 });
+      expect(isSpinnerRunning()).toBe(false);
+      expect(mockSetBadgeText).toHaveBeenCalledWith({ text: '' });
+      expect(mockSetTitle).toHaveBeenCalledWith({ title: 'PowerBookmark' });
+      expect(mockSetIcon).toHaveBeenCalledWith({ path: DEFAULT_ICON_PATH });
+      // The global icon must not be left on a spinner frame.
+      const globalIconCalls = mockSetIcon.mock.calls.filter((call) => !('tabId' in call[0]));
+      expect(globalIconCalls.length).toBeGreaterThan(0);
+      for (const call of globalIconCalls) {
+        expect(SPINNER_ICON_PATHS).not.toContainEqual(call[0].path);
+      }
+    });
+
+    it('restores every open tab icon/title away from the spinner frame', async () => {
+      stores.bookmarks = [{ url: 'https://example.com' }];
+      mockTabsQuery.mockResolvedValue([
+        { id: 1, url: 'https://example.com' },
+        { id: 2, url: 'https://other.com' }
+      ]);
+
+      await startTaskIndicator('archive');
+      expect(isSpinnerRunning()).toBe(true);
+
+      mockSetIcon.mockClear();
+      mockSetTitle.mockClear();
+
+      await resetTaskIndicator();
+
+      expect(mockTabsQuery).toHaveBeenCalledWith({});
+      for (const tabId of [1, 2]) {
+        const callsForTab = mockSetIcon.mock.calls.filter((call) => call[0].tabId === tabId);
+        expect(callsForTab.length).toBeGreaterThan(0);
+        for (const call of callsForTab) {
+          expect(SPINNER_ICON_PATHS).not.toContainEqual(call[0].path);
+          expect([DEFAULT_ICON_PATH, ACTIVE_ICON_PATH]).toContainEqual(call[0].path);
+        }
+        expect(mockSetTitle).toHaveBeenCalledWith({ tabId, title: expect.any(String) });
+      }
+      expect(isSpinnerRunning()).toBe(false);
     });
   });
 

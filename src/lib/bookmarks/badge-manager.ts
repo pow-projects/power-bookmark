@@ -239,6 +239,27 @@ async function renderSpinnerFrame(iconPath: IconPathMap, title: string): Promise
 }
 
 /**
+ * Advances the spinner by one frame, and stops itself once no task is active.
+ *
+ * Self-terminating on purpose: the tick re-reads the task counters and releases its own timer when they
+ * are all zero, so a timer that was created while another sync was still awaiting its first render (two
+ * queues claiming the indicator in the same tick) cannot keep repainting the icon forever.
+ */
+function tickSpinner(timer: ReturnType<typeof setInterval>): void {
+  if (taskCounts.archive + taskCounts.ai + taskCounts.capture === 0) {
+    clearInterval(timer);
+    if (spinnerTimer === timer) spinnerTimer = null;
+    currentFrameIndex = 0;
+    void syncTaskIndicatorState();
+    return;
+  }
+
+  currentFrameIndex = (currentFrameIndex + 1) % SPINNER_ICON_PATHS.length;
+  const { title } = getTaskIndicatorMeta();
+  renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], title).catch(() => {});
+}
+
+/**
  * Synchronizes spinner animation or badge restoration according to current taskCounts state.
  */
 async function syncTaskIndicatorState(): Promise<void> {
@@ -252,12 +273,17 @@ async function syncTaskIndicatorState(): Promise<void> {
 
     if (!spinnerTimer) {
       currentFrameIndex = 0;
+      // Own the timer slot synchronously, before the first await: a second task claiming the indicator
+      // while this render is still in flight must reuse this timer instead of creating a second one
+      // (an overwritten handle can never be cleared again — the icon then spins forever with zero tasks).
+      const timer = setInterval(() => tickSpinner(timer), SPINNER_INTERVAL_MS);
+      spinnerTimer = timer;
       await renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], title);
-      spinnerTimer = setInterval(() => {
-        currentFrameIndex = (currentFrameIndex + 1) % SPINNER_ICON_PATHS.length;
-        const currentMeta = getTaskIndicatorMeta();
-        renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], currentMeta.title).catch(() => {});
-      }, SPINNER_INTERVAL_MS);
+      // A release can complete its restore while this first frame is still rendering; re-settle so the
+      // idle icon/title is not left overwritten by a frame that landed late.
+      if (spinnerTimer !== timer && taskCounts.archive + taskCounts.ai + taskCounts.capture === 0) {
+        await syncTaskIndicatorState();
+      }
     } else {
       await renderSpinnerFrame(SPINNER_ICON_PATHS[currentFrameIndex], title);
     }
@@ -349,6 +375,26 @@ export function _resetTaskIndicatorsForTest(): void {
     spinnerTimer = null;
   }
   currentFrameIndex = 0;
+}
+
+/**
+ * Restores the task indicator to its default state on Service Worker startup.
+ *
+ * Task counts are in-memory and start at 0 upon boot. Any residual spinner icon or title
+ * painted by a prior SW instance is stale and must not outlive the worker.
+ * (Fixes an issue where recycled MV3 SW instances left orphaned spinner icons until a tab event occurred.)
+ */
+export async function resetTaskIndicator(): Promise<void> {
+  taskCounts.archive = 0;
+  taskCounts.ai = 0;
+  taskCounts.sync = 0;
+  taskCounts.capture = 0;
+  if (spinnerTimer) {
+    clearInterval(spinnerTimer);
+    spinnerTimer = null;
+  }
+  currentFrameIndex = 0;
+  await syncTaskIndicatorState();
 }
 
 /**

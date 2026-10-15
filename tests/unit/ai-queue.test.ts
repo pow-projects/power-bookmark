@@ -22,6 +22,7 @@ const {
   mockDbBookmarksGet,
   mockDbBookmarksWhere,
   mockDbBookmarksFilter,
+  mockDbBookmarksUpdate,
   mockGetAiSettings,
   mockRetryBackoffMs,
   fakeRows,
@@ -80,6 +81,7 @@ const {
     mockDbBookmarksGet: vi.fn(),
     mockDbBookmarksWhere: vi.fn(),
     mockDbBookmarksFilter: vi.fn(),
+    mockDbBookmarksUpdate: vi.fn(),
     mockGetAiSettings: vi.fn(),
     mockRetryBackoffMs: vi.fn(() => 5), // Minimize retry backoff in tests (default 5ms)
     fakeRows: rows,
@@ -100,7 +102,7 @@ vi.mock('../../src/lib/ai/queue-config', () => ({
 vi.mock('../../src/lib/db', () => ({
   default: {
     aiJobs: fakeTable,
-    bookmarks: { get: mockDbBookmarksGet, where: mockDbBookmarksWhere, filter: mockDbBookmarksFilter }
+    bookmarks: { get: mockDbBookmarksGet, where: mockDbBookmarksWhere, filter: mockDbBookmarksFilter, update: mockDbBookmarksUpdate }
   }
 }));
 
@@ -147,6 +149,7 @@ describe('ai-queue', () => {
     mockDbBookmarksGet.mockReset();
     mockDbBookmarksWhere.mockReset();
     mockDbBookmarksFilter.mockReset();
+    mockDbBookmarksUpdate.mockReset();
     mockGetAiSettings.mockReset();
     vi.unstubAllGlobals();
 
@@ -534,5 +537,62 @@ describe('ai-queue', () => {
     const b1Job = fakeRows.find((r) => r.bookmarkId === 1);
     expect(b1Job?.attempts).toBe(1);
     expect(b1Job?.retryHistory).toHaveLength(1);
+  });
+
+  // ── Progress badge persistence (AiTaskBadge) regression — component clearing state must also notify ──
+
+  it('exceptional exit: restores bookmark aiStatus to error and notifies failure when processAiJob throws', async () => {
+    const storageSet = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('browser', { storage: { local: { set: storageSet } } });
+    mockProcessAiJob.mockRejectedValue(new Error('unexpected crash'));
+    mockDbBookmarksGet.mockResolvedValue({ id: 1, bookmarkId: 'b1', aiStatus: 'running', title: 't', url: 'u' });
+
+    await enqueueAiJob({ bookmarkId: 1, kind: 'categorize' });
+    await waitUntil(() => fakeRows.some((r) => r.status === 'error'));
+
+    expect(fakeRows[0].status).toBe('error');
+    // Exceptional exit also receives terminal handling: bookmark flag creating card badge must be restored
+    expect(mockUpdateBookmark).toHaveBeenCalledWith(1, expect.objectContaining({ aiStatus: 'error' }));
+    // Notification must be dispatched so open management page badges are cleared
+    const errorNotices = storageSet.mock.calls.filter(([c]) => c['ai_analysis_error']);
+    expect(errorNotices.length).toBeGreaterThan(0);
+  });
+
+  it('boot sweep notification: writes ai_analysis_last_update when initAiQueue sweeps running jobs', async () => {
+    const storageSet = vi.fn().mockResolvedValue(undefined);
+    fakeRows.push({ id: 'stale', bookmarkId: 1, kind: 'categorize', status: 'running', createdAt: 1, attempts: 0 });
+    mockDbBookmarksGet.mockResolvedValue({ id: 1, bookmarkId: 'b1', aiStatus: 'running', title: 't', url: 'u' });
+    mockDbBookmarksFilter.mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) });
+    // Block drain execution to isolate and observe only notifications from the sweep itself
+    mockProcessAiJob.mockImplementation((_job: any, signal: AbortSignal) =>
+      new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, aborted: true })))
+    );
+    vi.stubGlobal('browser', {
+      storage: { local: { set: storageSet, remove: vi.fn().mockResolvedValue(undefined) } }
+    });
+
+    await initAiQueue();
+
+    // Step 1: running -> queued restoration resets bookmark status flag
+    expect(mockUpdateBookmark).toHaveBeenCalledWith(1, { aiStatus: 'none' });
+    // When sweep updates DB, open management pages must also be notified
+    const sweepNotices = storageSet.mock.calls.filter(([c]) => c['ai_analysis_last_update']);
+    expect(sweepNotices.length).toBeGreaterThan(0);
+
+    await cancelAllAi();
+    await new Promise((r) => setTimeout(r, 30));
+  });
+
+  it('unconfigured branch notification: clears pending status and notifies when AI is unconfigured', async () => {
+    const storageSet = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('browser', { storage: { local: { set: storageSet } } });
+    mockIsAiConfigured.mockResolvedValue(false);
+    mockDbBookmarksGet.mockResolvedValue({ id: 1, bookmarkId: 'b1', aiStatus: 'pending', title: 't', url: 'u' });
+
+    const r = await enqueueAiJob({ bookmarkId: 1, kind: 'categorize' });
+
+    expect(r).toEqual({ ok: false, reason: 'not-configured' });
+    expect(mockDbBookmarksUpdate).toHaveBeenCalledWith(1, { aiStatus: 'none' });
+    expect(storageSet.mock.calls.filter(([c]) => c['ai_analysis_last_update']).length).toBeGreaterThan(0);
   });
 });

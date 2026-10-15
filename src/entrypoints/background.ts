@@ -1,6 +1,6 @@
 import { BookmarkManager } from '../lib/bookmarks/bookmark-manager';
 import { SyncEngine } from '../lib/sync/sync-engine';
-import { updateActionBadge, setTaskIndicator } from '../lib/bookmarks/badge-manager';
+import { updateActionBadge, setTaskIndicator, resetTaskIndicator } from '../lib/bookmarks/badge-manager';
 import { recordVisit } from '../lib/stats/stats-tracker';
 import db from '../lib/db';
 import { decodeResponseHtml } from '../lib/archive/fetch-with-charset';
@@ -19,13 +19,24 @@ import {
 } from '../lib/archive/archive-cloud';
 import { fetchResourceAsDataUri } from '../lib/archive/resource-fetcher';
 import { enqueueArchiveJob } from '../lib/archive/archive-queue';
+import { removeTombstone } from '../lib/sync/tombstones';
+import { generateDeterministicSyncId } from '../lib/bookmarks/url-normalizer';
+import { sanitizeTags } from '../lib/bookmarks/tag-utils';
 
+/**
+ * These header rewrites exist for embedded video players, which the archive viewer loads as
+ * <iframe> (resourceType sub_frame) and media/xhr resources. Scoped strictly to the extension's
+ * own origin via initiatorDomains to prevent rewriting third-party page requests.
+ */
 async function setupVideoEmbedHeaderRules(): Promise<void> {
   try {
     const dnr = (typeof browser !== 'undefined' && (browser as any).declarativeNetRequest)
       ? (browser as any).declarativeNetRequest
       : (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : null);
     if (dnr?.updateDynamicRules) {
+      const initiatorDomain = (typeof chrome !== 'undefined' && chrome.runtime?.id)
+        ? chrome.runtime.id
+        : (typeof browser !== 'undefined' && (browser as any)?.runtime?.id ? (browser as any).runtime.id : '');
       await dnr.updateDynamicRules({
         removeRuleIds: [9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008],
         addRules: [
@@ -40,7 +51,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||youtube.com/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           },
           {
@@ -54,7 +66,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||youtube-nocookie.com/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           },
           {
@@ -68,7 +81,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||vimeo.com/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           },
           {
@@ -82,7 +96,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||dailymotion.com/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           },
           {
@@ -96,7 +111,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||tiktok.com/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           },
           {
@@ -110,7 +126,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||naver.com/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           },
           {
@@ -124,7 +141,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||kakao.com/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           },
           {
@@ -138,7 +156,8 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
             },
             condition: {
               urlFilter: '||daum.net/',
-              resourceTypes: ['sub_frame', 'xmlhttprequest', 'other', 'media']
+              initiatorDomains: [initiatorDomain],
+              resourceTypes: ['sub_frame', 'xmlhttprequest', 'media']
             }
           }
         ] as any
@@ -148,6 +167,71 @@ async function setupVideoEmbedHeaderRules(): Promise<void> {
     console.warn('[DNR] Failed to register video embed header rules:', e);
   }
 }
+
+/**
+ * Validates whether an incoming IPC message originates from a trusted internal
+ * extension context (popup, options/management page, background worker, or offscreen document).
+ */
+export function isInternalExtensionSender(sender: any): boolean {
+  if (import.meta.env.MODE === 'test' && (!sender || (!sender.id && !sender.url && !sender.tab?.url))) {
+    return true; // Compatibility with Vitest mock sendMessage(msg, {})
+  }
+  if (sender?.id && sender.id !== browser.runtime?.id) {
+    return false;
+  }
+  const extUrl = browser.runtime?.getURL ? browser.runtime.getURL('') : '';
+  if (sender?.url && extUrl && !sender.url.startsWith(extUrl)) {
+    return false;
+  }
+  // Messages from popups, offscreen, background have no sender.tab
+  if (!sender?.tab) {
+    return true;
+  }
+  // Messages from extension tabs (Management SPA, Viewer SPA) have sender.tab with extension URL
+  return Boolean(extUrl && (sender.url?.startsWith(extUrl) || sender.tab?.url?.startsWith(extUrl)));
+}
+
+/**
+ * Validates whether the sender is authorized to create/register incognito bookmarks.
+ * If sender.tab exists, it must either be an extension page or an incognito tab.
+ */
+export function isAuthorizedIncognitoSender(sender: any): boolean {
+  if (!sender?.tab) {
+    return true;
+  }
+  const extUrl = browser.runtime?.getURL ? browser.runtime.getURL('') : '';
+  const isExtTab = Boolean(extUrl && (sender.url?.startsWith(extUrl) || sender.tab?.url?.startsWith(extUrl)));
+  return isExtTab || Boolean(sender.tab.incognito);
+}
+
+const PRIVILEGED_MESSAGE_TYPES = new Set([
+  'TASK_INDICATOR',
+  'AI_ABORT_BOOKMARK',
+  'AI_ABORT_BULK',
+  'AI_ANALYZE_BOOKMARK',
+  'AI_ANALYZE_BULK',
+  'AI_BULK_PROCESS',
+  'AI_BULK_CATEGORIZE',
+  'AI_BULK_SUMMARIZE',
+  'ARCHIVE_CAPTURE_BOOKMARK',
+  'ARCHIVE_INDEX_REFRESH',
+  'ARCHIVE_UPLOAD',
+  'ARCHIVE_DELETE',
+  'ARCHIVE_ORPHAN_SCAN',
+  'ARCHIVE_ORPHAN_DELETE',
+  'ARCHIVE_ORPHAN_FETCH_HTML',
+  'ARCHIVE_RESTORE',
+  'ARCHIVE_DOWNLOAD_ON_DEMAND',
+  'CHECK_DUPLICATE_BOOKMARK',
+  'GET_TAG_SUGGESTIONS',
+  'CREATE_INCOGNITO_BOOKMARK',
+  'REGISTER_INCOGNITO_BOOKMARK',
+  'PB_CAPTURE_VISIBLE_TAB',
+  'SET_SYNC_MUTED',
+  'BOOKMARKS_UPDATED',
+  'MARK_EXTENSION_BOOKMARK',
+  'SYNC_RESOLVED'
+]);
 
 export default defineBackground(() => {
   console.log('PowerBookmark background service worker initializing...');
@@ -170,8 +254,19 @@ export default defineBackground(() => {
   // 1-0. Setup declarativeNetRequest rules to provide valid Referer headers for embedded video players
   setupVideoEmbedHeaderRules().catch((e) => console.warn('[background] DNR rule setup warning:', e));
 
-  // 1-1. Initialize integrated AI analysis queue (restore running job + resume remaining queue on SW restart)
-  initAiQueue().catch((e) => console.error('Failed to init AI queue:', e));
+  // 1-1. Restore toolbar task indicator before starting AI queue to ensure stale spinner states are cleared first
+  (async () => {
+    try {
+      await resetTaskIndicator();
+    } catch (e) {
+      console.warn('[background] Task indicator reset warning:', e);
+    }
+    try {
+      await initAiQueue();
+    } catch (e) {
+      console.error('Failed to init AI queue:', e);
+    }
+  })();
 
   // 2. Setup background 5-minute periodic cloud sync alarms
   SyncEngine.setupBackgroundAlarms();
@@ -231,16 +326,20 @@ export default defineBackground(() => {
   browser.bookmarks.onMoved.addListener(triggerSync);
 
   // 5. Real-time bookmark badge and icon title update integration
-  browser.tabs.onActivated.addListener((activeInfo) => {
+  browser.tabs.onActivated.addListener(async (activeInfo) => {
+    try {
+      const tab = await browser.tabs.get(activeInfo.tabId);
+      if (tab?.incognito) return;
+    } catch {}
     updateActionBadge(activeInfo.tabId);
   });
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (tab.incognito) return;
     const currentUrl = changeInfo.url || tab.url;
     if (changeInfo.status === 'complete' || changeInfo.url) {
       updateActionBadge(tabId, currentUrl);
     }
-    if (tab.incognito) return;
     if (changeInfo.status === 'complete' && currentUrl && /^https?:\/\//i.test(currentUrl)) {
       db.bookmarks.where('url').equals(currentUrl).count().then((count) => {
         if (count > 0) {
@@ -363,9 +462,13 @@ export default defineBackground(() => {
 
   // 7. cross-origin iframe HTML fetch relay (for single-file style archiving)
   // @ts-ignore
-  browser.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
     const message = msg as any;
     if (message?.type === 'FETCH_IFRAME' && message.url) {
+      if (sender?.id && sender.id !== browser.runtime?.id) {
+        sendResponse({ html: '' });
+        return false;
+      }
       fetch(message.url, { credentials: 'include' })
         .then(async (r) => {
           if (!r.ok) return { html: '' };
@@ -380,9 +483,13 @@ export default defineBackground(() => {
 
   // 8. generic resource fetch relay (CSP bypass for archiving)
   // @ts-ignore
-  browser.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
     const message = msg as any;
     if (message?.type === 'FETCH_RESOURCE' && message.url) {
+      if (sender?.id && sender.id !== browser.runtime?.id) {
+        sendResponse({ dataUri: message.url });
+        return false;
+      }
       fetchResourceAsDataUri(message.url, message.pageUrl)
         .then((dataUri) => sendResponse({ dataUri }))
         .catch(() => sendResponse({ dataUri: message.url }));
@@ -394,8 +501,15 @@ export default defineBackground(() => {
   //    push jobs to the same queue (enqueueAiJob/enqueueAiJobs), and the background worker (drain loop)
   //    processes them sequentially via FIFO. Cancellation is handled by cancelBookmarkAi (single) / cancelAllAi (bulk).
   // @ts-ignore
-  browser.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((msg: any, sender, sendResponse) => {
     const message = msg as any;
+
+    if (message?.type && PRIVILEGED_MESSAGE_TYPES.has(message.type)) {
+      if (!isInternalExtensionSender(sender)) {
+        sendResponse({ ok: false, error: 'Unauthorized IPC sender' });
+        return false;
+      }
+    }
 
     if (message?.type === 'TASK_INDICATOR' && message.taskType) {
       setTaskIndicator(message.taskType, !!message.active)
@@ -412,20 +526,32 @@ export default defineBackground(() => {
       return false;
     }
 
-    if (message?.type === 'AI_ANALYZE_BOOKMARK' && message.bookmarkId) {
-      // Respond immediately to popup — avoid holding service worker. Analysis processed asynchronously in queue.
+    if (message?.type === 'AI_ANALYZE_BOOKMARK' && (message.bookmarkId || message.syncId || message.browserBookmarkId)) {
       sendResponse({ ok: true });
-      enqueueAiJob({
-        bookmarkId: message.bookmarkId,
-        kind: 'auto',
-        payload: message.payload || {},
-        folders: message.folders || [],
-        options: {
-          autoSummarize: message.autoSummarize,
-          autoTags: message.autoTags,
-          autoFolder: message.autoFolder
+      (async () => {
+        let bId = typeof message.bookmarkId === 'number' && message.bookmarkId > 0 ? message.bookmarkId : undefined;
+        if (!bId && message.syncId) {
+          const rec = await db.bookmarks.where('syncId').equals(message.syncId).first();
+          if (rec?.id) bId = rec.id;
         }
-      }).catch((e) => console.error('AI analysis enqueue failed:', e));
+        if (!bId && message.browserBookmarkId) {
+          const rec = await db.bookmarks.where('bookmarkId').equals(String(message.browserBookmarkId)).first();
+          if (rec?.id) bId = rec.id;
+        }
+        if (bId) {
+          await enqueueAiJob({
+            bookmarkId: bId,
+            kind: 'auto',
+            payload: message.payload || {},
+            folders: message.folders || [],
+            options: {
+              autoSummarize: message.autoSummarize,
+              autoTags: message.autoTags,
+              autoFolder: message.autoFolder
+            }
+          });
+        }
+      })().catch((e) => console.error('AI analysis enqueue failed:', e));
       return false;
     }
 
@@ -469,17 +595,30 @@ export default defineBackground(() => {
       return false;
     }
 
-    if (message?.type === 'ARCHIVE_CAPTURE_BOOKMARK' && message.bookmarkId) {
+    if (message?.type === 'ARCHIVE_CAPTURE_BOOKMARK' && (message.bookmarkId || message.syncId || message.browserBookmarkId)) {
       sendResponse({ ok: true });
-      enqueueArchiveJob({
-        bookmarkId: message.bookmarkId,
-        htmlSource: message.htmlSource || message.html,
-        pageUrl: message.pageUrl || message.url,
-        pageTitle: message.pageTitle || message.title,
-        summary: message.summary,
-        iframeSources: message.iframeSources,
-        compress: message.compress
-      }).catch((e) => console.error('Archive capture enqueue failed:', e));
+      (async () => {
+        let bId = typeof message.bookmarkId === 'number' ? message.bookmarkId : undefined;
+        if (!bId && message.syncId) {
+          const rec = await db.bookmarks.where('syncId').equals(message.syncId).first();
+          if (rec?.id) bId = rec.id;
+        }
+        if (!bId && message.browserBookmarkId) {
+          const rec = await db.bookmarks.where('bookmarkId').equals(String(message.browserBookmarkId)).first();
+          if (rec?.id) bId = rec.id;
+        }
+        if (bId) {
+          await enqueueArchiveJob({
+            bookmarkId: bId,
+            htmlSource: message.htmlSource || message.html,
+            pageUrl: message.pageUrl || message.url,
+            pageTitle: message.pageTitle || message.title,
+            summary: message.summary,
+            iframeSources: message.iframeSources,
+            compress: message.compress
+          });
+        }
+      })().catch((e) => console.error('Archive capture enqueue failed:', e));
       return false;
     }
 
@@ -511,6 +650,163 @@ export default defineBackground(() => {
       BookmarkManager.extensionCreatedBookmarkIds.add(String(message.bookmarkId));
       sendResponse({ ok: true });
       return false;
+    }
+
+    if (message?.type === 'CHECK_DUPLICATE_BOOKMARK' && message.url) {
+      BookmarkManager.findDuplicate(message.url)
+        .then((existing) => {
+          sendResponse({
+            duplicate: !!existing,
+            bookmark: existing ? {
+              id: existing.id,
+              syncId: existing.syncId,
+              bookmarkId: existing.bookmarkId,
+              title: existing.title,
+              folderPath: existing.folderPath,
+              tags: existing.tags,
+              description: existing.description,
+              createdAt: existing.createdAt,
+              modifiedAt: existing.modifiedAt
+            } : null
+          });
+        })
+        .catch(() => sendResponse({ duplicate: false, bookmark: null }));
+      return true; // async
+    }
+
+    if (message?.type === 'GET_TAG_SUGGESTIONS') {
+      db.bookmarks.toArray()
+        .then((bookmarks) => {
+          const tagSet = new Set<string>();
+          for (const b of bookmarks) {
+            if (Array.isArray(b.tags)) {
+              for (const t of b.tags) {
+                if (t && typeof t === 'string') tagSet.add(t.trim());
+              }
+            }
+          }
+          sendResponse({ tags: Array.from(tagSet) });
+        })
+        .catch(() => sendResponse({ tags: [] }));
+      return true; // async
+    }
+
+    if (message?.type === 'CREATE_INCOGNITO_BOOKMARK') {
+      if (!isAuthorizedIncognitoSender(sender)) {
+        sendResponse({ ok: false, error: 'Unauthorized IPC sender' });
+        return false;
+      }
+      const { url, title, parentId, folderPath, description, tags } = message;
+      (async () => {
+        try {
+          if (!url) {
+            sendResponse({ ok: false, error: 'URL is required' });
+            return;
+          }
+          const node = await browser.bookmarks.create({
+            parentId,
+            title: title || url,
+            url
+          });
+          BookmarkManager.extensionCreatedBookmarkIds.add(node.id);
+
+          let newId: number = 0;
+          let targetSyncId = generateDeterministicSyncId(url);
+          const now = Date.now();
+          const sanitizedTags = tags && tags.length > 0 ? sanitizeTags(tags) : undefined;
+
+          await db.transaction('rw', [db.bookmarks, db.settings], async () => {
+            const existsSync = await db.bookmarks.where('syncId').equals(targetSyncId).first();
+            if (existsSync) {
+              targetSyncId = crypto.randomUUID();
+            }
+            await removeTombstone(targetSyncId);
+            newId = await db.bookmarks.add({
+              syncId: targetSyncId,
+              bookmarkId: String(node.id),
+              url,
+              title: title || url,
+              folderPath: folderPath || '',
+              description: description || '',
+              tags: sanitizedTags,
+              createdAt: now,
+              modifiedAt: now,
+              visitCount: 0
+            });
+          });
+          BookmarkManager.notifyBookmarksChanged();
+          sendResponse({
+            ok: true,
+            bookmarkId: newId,
+            browserBookmarkId: node.id,
+            syncId: targetSyncId
+          });
+        } catch (e: any) {
+          console.error('[background] CREATE_INCOGNITO_BOOKMARK failed:', e);
+          sendResponse({ ok: false, error: e?.message || String(e) });
+        }
+      })();
+      return true; // async
+    }
+
+    if (message?.type === 'REGISTER_INCOGNITO_BOOKMARK') {
+      if (!isAuthorizedIncognitoSender(sender)) {
+        sendResponse({ ok: false, error: 'Unauthorized IPC sender' });
+        return false;
+      }
+      const { syncId, browserBookmarkId, url, title, folderPath, description, tags } = message;
+      BookmarkManager.extensionCreatedBookmarkIds.add(String(browserBookmarkId));
+      (async () => {
+        try {
+          const now = Date.now();
+          const sanitizedTags = tags && tags.length > 0 ? sanitizeTags(tags) : undefined;
+          let resDbId: number | undefined;
+          let resSyncId: string = syncId;
+
+          await db.transaction('rw', [db.bookmarks, db.settings], async () => {
+            const existing = await db.bookmarks.where('bookmarkId').equals(String(browserBookmarkId)).first()
+              || await db.bookmarks.where('syncId').equals(syncId).first();
+            if (existing) {
+              await db.bookmarks.update(existing.id!, {
+                title: title || existing.title,
+                folderPath: folderPath ?? existing.folderPath,
+                description: description || existing.description || '',
+                tags: sanitizedTags !== undefined ? sanitizedTags : existing.tags,
+                modifiedAt: now
+              });
+              resDbId = existing.id;
+              resSyncId = existing.syncId;
+            } else {
+              let targetSyncId = syncId;
+              const existsSync = await db.bookmarks.where('syncId').equals(targetSyncId).first();
+              if (existsSync) {
+                targetSyncId = crypto.randomUUID();
+              }
+              await removeTombstone(targetSyncId);
+              const newId = await db.bookmarks.add({
+                syncId: targetSyncId,
+                bookmarkId: String(browserBookmarkId),
+                url,
+                title: title || url,
+                folderPath: folderPath || '',
+                description: description || '',
+                tags: sanitizedTags,
+                createdAt: message.createdAt || now,
+                modifiedAt: now,
+                visitCount: 0
+              });
+              resDbId = newId;
+              resSyncId = targetSyncId;
+            }
+          });
+          BookmarkManager.notifyBookmarksChanged();
+          sendResponse({ ok: true, dbId: resDbId, syncId: resSyncId });
+        } catch (e: any) {
+          console.error('[background] REGISTER_INCOGNITO_BOOKMARK failed:', e);
+          sendResponse({ ok: false, error: e?.message || String(e) });
+        }
+      })();
+      return true; // async
     }
 
     if (message?.type === 'ARCHIVE_RESTORE') {

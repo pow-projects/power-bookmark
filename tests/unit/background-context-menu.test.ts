@@ -99,7 +99,8 @@ vi.mock('../../src/lib/stats/stats-tracker', () => ({
 
 vi.mock('../../src/lib/bookmarks/badge-manager', () => ({
   updateActionBadge: vi.fn().mockResolvedValue(undefined),
-  setTaskIndicator: vi.fn()
+  setTaskIndicator: vi.fn(),
+  resetTaskIndicator: vi.fn().mockResolvedValue(undefined)
 }));
 
 vi.mock('../../src/lib/db', () => ({

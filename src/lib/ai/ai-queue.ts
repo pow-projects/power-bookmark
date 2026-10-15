@@ -171,6 +171,7 @@ export async function initAiQueue(): Promise<void> {
 
   // 1. running -> queued restoration. However, jobs that exhausted retry budget (attempts >= MAX)
   //    are finalized as error without re-execution — prevents infinite retries
+  let swept = 0;
   const stale = await db.aiJobs.where('status').equals('running').toArray();
   for (const job of stale) {
     const b = await db.bookmarks.get(job.bookmarkId);
@@ -180,6 +181,7 @@ export async function initAiQueue(): Promise<void> {
       await db.aiJobs.put(job);
       if (b?.aiStatus === 'running') {
         await BookmarkManager.updateBookmark(job.bookmarkId, { aiStatus: 'error' });
+        swept++;
       }
       continue;
     }
@@ -187,6 +189,7 @@ export async function initAiQueue(): Promise<void> {
     await db.aiJobs.put(job);
     if (b?.aiStatus === 'running') {
       await BookmarkManager.updateBookmark(job.bookmarkId, { aiStatus: 'none' });
+      swept++;
     }
   }
 
@@ -198,8 +201,15 @@ export async function initAiQueue(): Promise<void> {
       const hasJob = jobs.some((j) => j.status === 'queued' || j.status === 'running');
       if (!hasJob) {
         await BookmarkManager.updateBookmark(b.id, { aiStatus: 'none' });
+        swept++;
       }
     }
+  }
+
+  // Sweeping only updates Dexie; open management pages must be notified so their badges clear.
+  // (Because this boot path fires only once, missing this notification leaves badges stuck permanently.)
+  if (swept > 0) {
+    await notifyManagementPage({ ok: true });
   }
 
   // 3. Clear stranded batch progress if no queued/running batch jobs remain
@@ -224,6 +234,7 @@ export async function enqueueAiJob(input: EnqueueInput): Promise<EnqueueResult> 
     const bookmark = await db.bookmarks.get(input.bookmarkId);
     if (bookmark && bookmark.aiStatus === 'pending') {
       await db.bookmarks.update(input.bookmarkId, { aiStatus: 'none' });
+      await notifyManagementPage({ ok: true });
     }
     return { ok: false, reason: 'not-configured' };
   }
@@ -542,11 +553,9 @@ async function runWorker(job: AiJob, abortController: AbortController): Promise<
     const outcome = await processAiJob(job, abortController.signal);
     await finalizeJob(job, outcome);
   } catch (e: any) {
-    const outcome = applyRetryOrFail(job, e?.message || String(e), !isPermanentAiError(e));
-    await db.aiJobs.put(job);
-    if (outcome === 'error') {
-      await publishBatchProgress(job, 'finish', { ok: false, error: job.error });
-    }
+    // Unexpected exceptions receive the same terminal failure handling: transition job state, restore bookmark aiStatus, and notify UI.
+    // Previously, only the job state was changed while leaving the bookmark flag intact, causing card progress badges to stick after completion.
+    await finalizeJob(job, { ok: false, error: e?.message || String(e), retryable: !isPermanentAiError(e) });
   } finally {
     activeAbortControllers.delete(job.id);
     runningJobIds.delete(job.id);

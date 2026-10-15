@@ -460,7 +460,8 @@
     if (typeof browser !== 'undefined' && browser.runtime?.onMessage?.addListener) {
       browser.runtime.onMessage.addListener(handleRuntimeMessage);
     }
-    cleanupAiStore = initAiProgressStore(() => { loadBookmarks(); });
+    // initAiProgressStore takes no arguments; update trigger comes from storage and runtime messages.
+    cleanupAiStore = initAiProgressStore();
 
     // Restore in-progress AI bulk job state on initial mount
     if (typeof browser !== 'undefined' && browser.storage?.local) {
